@@ -132,15 +132,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(401).json({ message: info.message });
       }
+      
+      // Check if 2FA is enabled
+      if (user.twoFactorEnabled) {
+        // Return a partial success response with a flag indicating 2FA is required
+        return res.json({
+          requireTwoFactor: true,
+          username: user.username,
+          message: "Two-factor authentication code required"
+        });
+      }
+      
+      // No 2FA required, complete login
       req.logIn(user, (err) => {
         if (err) {
           return next(err);
         }
+        
+        // Update last login timestamp and IP
+        storage.updateLoginInfo(user.id, req.ip).catch(err => {
+          console.error("Error updating login info:", err);
+        });
+        
         // Don't send password back to client
-        const { password, ...userWithoutPassword } = user;
-        return res.json(userWithoutPassword);
+        const { password, twoFactorSecret, backupCodes, ...userWithoutSensitiveData } = user;
+        return res.json(userWithoutSensitiveData);
       });
     })(req, res, next);
+  });
+  
+  // Handle 2FA authentication during login
+  app.post("/api/login/2fa", (req, res, next) => {
+    const { username, token, useBackupCode } = req.body;
+    
+    if (!username || (!token && !useBackupCode)) {
+      return res.status(400).json({ message: "Username and token or backup code are required" });
+    }
+    
+    // Find the user first
+    storage.getUserByUsername(username)
+      .then(user => {
+        if (!user || !user.twoFactorEnabled) {
+          return res.status(401).json({ message: "Invalid credentials or 2FA not enabled" });
+        }
+        
+        let isValid = false;
+        let remainingCodes = null;
+        
+        if (useBackupCode) {
+          // Validate backup code
+          if (!user.backupCodes) {
+            return res.status(400).json({ message: "No backup codes available" });
+          }
+          
+          const backupCodes = JSON.parse(user.backupCodes);
+          const result = verifyBackupCode(token, backupCodes);
+          
+          if (result.isValid) {
+            isValid = true;
+            remainingCodes = result.remainingCodes;
+          }
+        } else {
+          // Validate TOTP token
+          if (!user.twoFactorSecret) {
+            return res.status(400).json({ message: "2FA not properly configured" });
+          }
+          
+          isValid = verifyToken(token, user.twoFactorSecret);
+        }
+        
+        if (!isValid) {
+          return res.status(401).json({ message: "Invalid authentication code" });
+        }
+        
+        // If using backup code, update the remaining codes
+        if (useBackupCode && remainingCodes) {
+          storage.useBackupCode(user.id, remainingCodes)
+            .catch(err => console.error("Error updating backup codes:", err));
+          
+          // Log backup code usage
+          storage.insertActivityLog({
+            userId: user.id,
+            action: "security.2fa_backup_code_used",
+            details: { username: user.username },
+            ipAddress: req.ip || null
+          }).catch(err => console.error("Error logging activity:", err));
+        }
+        
+        // Log the user in
+        req.login(user, (err) => {
+          if (err) {
+            return next(err);
+          }
+          
+          // Update last login timestamp and IP
+          storage.updateLoginInfo(user.id, req.ip || null)
+            .catch(err => console.error("Error updating login info:", err));
+          
+          // Log successful 2FA login
+          storage.insertActivityLog({
+            userId: user.id,
+            action: "security.2fa_login_success",
+            details: { username: user.username },
+            ipAddress: req.ip || null
+          }).catch(err => console.error("Error logging activity:", err));
+          
+          // Don't send sensitive data back to client
+          const { password, twoFactorSecret, backupCodes, ...userWithoutSensitiveData } = user;
+          return res.json(userWithoutSensitiveData);
+        });
+      })
+      .catch(error => {
+        console.error("Error during 2FA login:", error);
+        return res.status(500).json({ message: "Internal server error" });
+      });
   });
 
   app.post("/api/register", async (req, res) => {
@@ -237,6 +342,255 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error fetching user data:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Two-Factor Authentication routes
+  app.post("/api/2fa/setup", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Check if 2FA is already enabled
+      if (user.twoFactorEnabled) {
+        return res.status(400).json({ message: "Two-factor authentication is already enabled" });
+      }
+      
+      // Generate a new secret
+      const secret = generateSecret();
+      
+      // Generate backup codes
+      const backupCodes = generateBackupCodes();
+      
+      // Generate QR code
+      const qrCodeUrl = await generateQRCode(
+        { username: user.username, email: user.email },
+        secret
+      );
+      
+      // Update user with secret but don't enable 2FA yet
+      await storage.updateTwoFactorStatus(userId, {
+        enabled: false,
+        secret,
+        backupCodes
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "security.2fa_setup_initiated",
+        details: { username: user.username },
+        ipAddress: req.ip
+      });
+      
+      res.json({
+        secret,
+        qrCodeUrl,
+        backupCodes
+      });
+    } catch (error) {
+      console.error("Error setting up 2FA:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/2fa/verify", isAuthenticated, async (req, res) => {
+    try {
+      const { token } = req.body;
+      
+      if (!token) {
+        return res.status(400).json({ message: "Token is required" });
+      }
+      
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.twoFactorSecret) {
+        return res.status(404).json({ message: "User not found or 2FA not set up" });
+      }
+      
+      // Verify the token
+      const isValid = verifyToken(token, user.twoFactorSecret);
+      
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid token" });
+      }
+      
+      // Enable 2FA for the user
+      await storage.updateTwoFactorStatus(userId, {
+        enabled: true,
+        secret: user.twoFactorSecret,
+        backupCodes: user.backupCodes ? JSON.parse(user.backupCodes) : null
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "security.2fa_enabled",
+        details: { username: user.username },
+        ipAddress: req.ip
+      });
+      
+      res.json({ success: true, message: "Two-factor authentication enabled successfully" });
+    } catch (error) {
+      console.error("Error verifying 2FA token:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/2fa/disable", isAuthenticated, async (req, res) => {
+    try {
+      const { password } = req.body;
+      
+      if (!password) {
+        return res.status(400).json({ message: "Password is required" });
+      }
+      
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Verify password
+      const isValid = await bcrypt.compare(password, user.password);
+      
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid password" });
+      }
+      
+      // Disable 2FA
+      await storage.updateTwoFactorStatus(userId, {
+        enabled: false,
+        secret: null,
+        backupCodes: null
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "security.2fa_disabled",
+        details: { username: user.username },
+        ipAddress: req.ip
+      });
+      
+      res.json({ success: true, message: "Two-factor authentication disabled successfully" });
+    } catch (error) {
+      console.error("Error disabling 2FA:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/2fa/validate", async (req, res) => {
+    try {
+      const { username, token, useBackupCode } = req.body;
+      
+      if (!username || (!token && !useBackupCode)) {
+        return res.status(400).json({ message: "Username and token or backup code are required" });
+      }
+      
+      const user = await storage.getUserByUsername(username);
+      
+      if (!user || !user.twoFactorEnabled) {
+        return res.status(401).json({ message: "Invalid credentials or 2FA not enabled" });
+      }
+      
+      let isValid = false;
+      
+      if (useBackupCode) {
+        // Use backup code flow
+        if (!user.backupCodes) {
+          return res.status(400).json({ message: "No backup codes available" });
+        }
+        
+        const backupCodes = JSON.parse(user.backupCodes);
+        const { isValid: isValidBackup, remainingCodes } = verifyBackupCode(token, backupCodes);
+        
+        if (isValidBackup) {
+          // Update the user's backup codes
+          await storage.useBackupCode(user.id, remainingCodes);
+          isValid = true;
+          
+          // Log backup code usage
+          await storage.insertActivityLog({
+            userId: user.id,
+            action: "security.2fa_backup_code_used",
+            details: { username: user.username },
+            ipAddress: req.ip
+          });
+        }
+      } else {
+        // Standard token flow
+        isValid = user.twoFactorSecret ? verifyToken(token, user.twoFactorSecret) : false;
+      }
+      
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid authentication code" });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error validating 2FA:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/2fa/status", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      res.json({
+        enabled: user.twoFactorEnabled,
+        setupComplete: user.twoFactorEnabled && !!user.twoFactorSecret,
+        backupCodesCount: user.backupCodes ? JSON.parse(user.backupCodes).length : 0
+      });
+    } catch (error) {
+      console.error("Error getting 2FA status:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/2fa/regenerate-backup-codes", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.twoFactorEnabled) {
+        return res.status(400).json({ message: "User not found or 2FA not enabled" });
+      }
+      
+      // Generate new backup codes
+      const backupCodes = generateBackupCodes();
+      
+      // Update user
+      await storage.updateTwoFactorStatus(userId, {
+        enabled: user.twoFactorEnabled,
+        secret: user.twoFactorSecret,
+        backupCodes
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "security.2fa_backup_codes_regenerated",
+        details: { username: user.username },
+        ipAddress: req.ip
+      });
+      
+      res.json({ backupCodes });
+    } catch (error) {
+      console.error("Error regenerating backup codes:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

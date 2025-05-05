@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
+import { TwoFactorForm } from "@/components/auth/two-factor-form";
 
 const formSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -25,6 +26,8 @@ const formSchema = z.object({
 export default function Login() {
   const [location, navigate] = useLocation();
   const { user, loginMutation } = useAuth();
+  const [twoFactorRequired, setTwoFactorRequired] = useState(false);
+  const [username, setUsername] = useState("");
   
   // Redirect if already logged in
   useEffect(() => {
@@ -45,10 +48,21 @@ export default function Login() {
   // Submit handler
   function onSubmit(values: z.infer<typeof formSchema>) {
     loginMutation.mutate(values, {
-      onSuccess: () => {
-        navigate("/dashboard");
+      onSuccess: (response) => {
+        // Check if 2FA is required
+        if (response.requireTwoFactor) {
+          setTwoFactorRequired(true);
+          setUsername(response.username);
+        } else {
+          navigate("/dashboard");
+        }
       }
     });
+  }
+  
+  // Handle successful 2FA verification
+  function handleTwoFactorSuccess(user: any) {
+    navigate("/dashboard");
   }
 
   return (
@@ -63,65 +77,79 @@ export default function Login() {
               </span>
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold text-center">Sign in to your account</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">
+            {twoFactorRequired ? "Two-Factor Authentication" : "Sign in to your account"}
+          </CardTitle>
           <CardDescription className="text-center">
-            Enter your username and password to access your mail server
+            {twoFactorRequired
+              ? "Enter the verification code from your authenticator app"
+              : "Enter your username and password to access your mail server"
+            }
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="username"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Username</FormLabel>
-                    <FormControl>
-                      <Input placeholder="your-username" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="••••••••" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <Button 
-                type="submit" 
-                className="w-full"
-                disabled={loginMutation.isPending}
-              >
-                {loginMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Signing in...
-                  </>
-                ) : (
-                  "Sign In"
-                )}
-              </Button>
-            </form>
-          </Form>
+          {twoFactorRequired ? (
+            <TwoFactorForm 
+              username={username} 
+              onSuccess={handleTwoFactorSuccess} 
+            />
+          ) : (
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="username"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Username</FormLabel>
+                      <FormControl>
+                        <Input placeholder="your-username" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input type="password" placeholder="••••••••" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <Button 
+                  type="submit" 
+                  className="w-full"
+                  disabled={loginMutation.isPending}
+                >
+                  {loginMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Signing in...
+                    </>
+                  ) : (
+                    "Sign In"
+                  )}
+                </Button>
+              </form>
+            </Form>
+          )}
         </CardContent>
-        <CardFooter className="flex justify-center">
-          <p className="text-sm text-muted-foreground">
-            Don't have an account?{" "}
-            <Link href="/register" className="text-primary hover:underline">
-              Sign up
-            </Link>
-          </p>
-        </CardFooter>
+        {!twoFactorRequired && (
+          <CardFooter className="flex justify-center">
+            <p className="text-sm text-muted-foreground">
+              Don't have an account?{" "}
+              <Link href="/register" className="text-primary hover:underline">
+                Sign up
+              </Link>
+            </p>
+          </CardFooter>
+        )}
       </Card>
     </div>
   );
