@@ -19,6 +19,7 @@ import Register from "./pages/register";
 import Checkout from "./pages/checkout";
 import Subscribe from "./pages/subscribe";
 import ResellerDashboard from "./pages/reseller-dashboard";
+import EmailSettings from "./pages/email-settings";
 
 function Router() {
   return (

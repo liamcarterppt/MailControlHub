@@ -1,7 +1,7 @@
 import { MailService } from '@sendgrid/mail';
 import { db } from '@db';
 import { serverConfig } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 
 // Email service will be initialized once the API key is available
 let mailService: MailService | null = null;
@@ -133,12 +133,16 @@ export async function loadEmailConfiguration(): Promise<void> {
   try {
     const configItems = await db.select()
       .from(serverConfig)
-      .where(eq(serverConfig.name, 'sendgrid_api_key'))
-      .orWhere(eq(serverConfig.name, 'email_fromEmail'))
-      .orWhere(eq(serverConfig.name, 'email_fromName'))
-      .orWhere(eq(serverConfig.name, 'email_replyToEmail'))
-      .orWhere(eq(serverConfig.name, 'email_footerText'))
-      .orWhere(eq(serverConfig.name, 'email_enabled'));
+      .where(
+        or(
+          eq(serverConfig.name, 'sendgrid_api_key'),
+          eq(serverConfig.name, 'email_fromEmail'),
+          eq(serverConfig.name, 'email_fromName'),
+          eq(serverConfig.name, 'email_replyToEmail'),
+          eq(serverConfig.name, 'email_footerText'),
+          eq(serverConfig.name, 'email_enabled')
+        )
+      );
     
     for (const item of configItems) {
       if (item.name === 'sendgrid_api_key' && item.value) {

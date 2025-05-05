@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import MainLayout from "@/components/layout/main-layout";
+import { MainLayout } from "@/components/layout/main-layout";
 import {
   Card,
   CardContent,
