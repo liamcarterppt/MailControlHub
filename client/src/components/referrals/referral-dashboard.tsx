@@ -75,7 +75,7 @@ export function ReferralDashboard() {
 
   const columns = [
     {
-      id: "referredUser",
+      accessorKey: "referredUser",
       header: "Referred User",
       cell: ({ row }: { row: { original: Referral } }) => (
         <div className="font-medium">
@@ -84,7 +84,7 @@ export function ReferralDashboard() {
       ),
     },
     {
-      id: "status",
+      accessorKey: "status",
       header: "Status",
       cell: ({ row }: { row: { original: Referral } }) => {
         const status = row.original.status;
@@ -112,19 +112,19 @@ export function ReferralDashboard() {
       },
     },
     {
-      id: "reward",
+      accessorKey: "reward",
       header: "Reward",
       cell: ({ row }: { row: { original: Referral } }) => 
         row.original.reward ? formatCurrency(row.original.reward) : "Pending",
     },
     {
-      id: "createdAt",
+      accessorKey: "createdAt",
       header: "Referred On",
       cell: ({ row }: { row: { original: Referral } }) => 
         formatDate(row.original.createdAt),
     },
     {
-      id: "completedAt",
+      accessorKey: "completedAt",
       header: "Completed",
       cell: ({ row }: { row: { original: Referral } }) => 
         row.original.completedAt ? formatRelativeTime(row.original.completedAt) : "Pending",
