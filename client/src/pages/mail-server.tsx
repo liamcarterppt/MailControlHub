@@ -527,12 +527,18 @@ export default function MailServerPage() {
   
   // Handle spam filter form submission
   function onSpamFilterSubmit(data: SpamFilterFormData) {
-    addSpamFilterMutation.mutate(data);
+    addSpamFilterMutation.mutate({
+      ...data,
+      serverId
+    });
   }
   
   // Handle backup job form submission
   function onBackupJobSubmit(data: BackupJobFormData) {
-    addBackupJobMutation.mutate(data);
+    addBackupJobMutation.mutate({
+      ...data,
+      serverId
+    });
   }
 
   // Function to get status badge color
@@ -706,6 +712,90 @@ export default function MailServerPage() {
                 <div className="flex justify-end">
                   <Button variant="outline" size="sm" onClick={() => setActiveTab("dns")}>
                     View DNS Records
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle>Security</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm font-medium text-muted-foreground">Spam Filters</div>
+                  <div className="text-2xl font-bold">
+                    {spamFiltersLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <>
+                        <span className="text-green-500 font-bold">{spamFilters.filter(f => f.isActive).length}</span>
+                        <span className="text-sm font-normal text-muted-foreground"> / {spamFilters.length}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div className="text-sm font-medium text-muted-foreground">Active Protection</div>
+                  <div>
+                    {spamFiltersLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : spamFilters.some(f => f.isActive) ? (
+                      <Badge className="bg-green-500">Enabled</Badge>
+                    ) : (
+                      <Badge variant="outline">Disabled</Badge>
+                    )}
+                  </div>
+                </div>
+                <Separator className="my-2" />
+                <div className="flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("security")}>
+                    Manage Security
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle>Backups</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="text-sm font-medium text-muted-foreground">Backup Jobs</div>
+                  <div className="text-2xl font-bold">
+                    {backupJobsLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : backupJobs.length}
+                  </div>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div className="text-sm font-medium text-muted-foreground">Last Backup</div>
+                  <div className="text-sm">
+                    {backupJobsLoading ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : backupJobs.length > 0 ? (
+                      backupJobs.some(job => job.lastRunAt) ? (
+                        format(
+                          new Date(
+                            Math.max(
+                              ...backupJobs
+                                .filter(job => job.lastRunAt)
+                                .map(job => new Date(job.lastRunAt).getTime())
+                            )
+                          ),
+                          'MMM d, yyyy'
+                        )
+                      ) : (
+                        'Never'
+                      )
+                    ) : (
+                      'No backups'
+                    )}
+                  </div>
+                </div>
+                <Separator className="my-2" />
+                <div className="flex justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab("backups")}>
+                    Manage Backups
                   </Button>
                 </div>
               </CardContent>
