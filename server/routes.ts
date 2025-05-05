@@ -3422,6 +3422,272 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Security management - Spam Filters
+  app.get("/api/mail-servers/:id/spam-filters", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to access this server" });
+      }
+      
+      const filters = await mailInABoxService.getSpamFilters(serverId);
+      res.json(filters);
+    } catch (error) {
+      console.error("Error fetching spam filters:", error);
+      res.status(500).json({ message: "Failed to fetch spam filters" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/spam-filters", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const { name, ruleType, pattern, action, isActive, description, score } = req.body;
+      
+      if (!name || !ruleType || !pattern || !action) {
+        return res.status(400).json({ message: "Missing required fields for spam filter" });
+      }
+      
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      const filter = await mailInABoxService.createSpamFilter(serverId, {
+        name,
+        ruleType,
+        pattern,
+        action,
+        isActive: isActive !== undefined ? isActive : true,
+        description,
+        score: score !== undefined ? score : null
+      });
+      
+      res.status(201).json(filter);
+    } catch (error) {
+      console.error("Error creating spam filter:", error);
+      res.status(500).json({ message: "Failed to create spam filter" });
+    }
+  });
+  
+  app.delete("/api/mail-servers/:serverId/spam-filters/:id", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.serverId);
+      const filterId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      await mailInABoxService.deleteSpamFilter(serverId, filterId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting spam filter:", error);
+      res.status(500).json({ message: "Failed to delete spam filter" });
+    }
+  });
+  
+  // Backup Management
+  app.get("/api/mail-servers/:id/backups", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to access this server" });
+      }
+      
+      const backups = await mailInABoxService.getBackupJobs(serverId);
+      res.json(backups);
+    } catch (error) {
+      console.error("Error fetching backup jobs:", error);
+      res.status(500).json({ message: "Failed to fetch backup jobs" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/backups", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const { name, backupType, destination, schedule, retentionDays, encryptionKey } = req.body;
+      
+      if (!name || !backupType || !destination || !schedule) {
+        return res.status(400).json({ message: "Missing required fields for backup job" });
+      }
+      
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      const backup = await mailInABoxService.createBackupJob(serverId, {
+        name,
+        backupType,
+        destination,
+        schedule,
+        retentionDays,
+        encryptionKey
+      });
+      
+      res.status(201).json(backup);
+    } catch (error) {
+      console.error("Error creating backup job:", error);
+      res.status(500).json({ message: "Failed to create backup job" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:serverId/backups/:id/run", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.serverId);
+      const jobId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      const result = await mailInABoxService.runBackupJob(serverId, jobId);
+      res.json(result);
+    } catch (error) {
+      console.error("Error running backup job:", error);
+      res.status(500).json({ message: "Failed to run backup job" });
+    }
+  });
+  
+  app.get("/api/mail-servers/:serverId/backups/:id/history", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.serverId);
+      const jobId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to access this server" });
+      }
+      
+      const history = await storage.getBackupHistoryByJobId(jobId);
+      res.json(history);
+    } catch (error) {
+      console.error("Error fetching backup history:", error);
+      res.status(500).json({ message: "Failed to fetch backup history" });
+    }
+  });
+  
+  // Server Monitoring & Metrics
+  app.get("/api/mail-servers/:id/metrics", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to access this server" });
+      }
+      
+      // Get the latest metrics
+      const metrics = await mailInABoxService.getServerMetrics(serverId);
+      
+      // Get historical metrics
+      const historicalMetrics = await storage.getServerMetricsById(serverId);
+      
+      res.json({
+        current: metrics,
+        historical: historicalMetrics
+      });
+    } catch (error) {
+      console.error("Error fetching server metrics:", error);
+      res.status(500).json({ message: "Failed to fetch server metrics" });
+    }
+  });
+  
+  // Comprehensive Server Sync
+  app.post("/api/mail-servers/:id/sync", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      await mailInABoxService.syncAllServerData(serverId);
+      
+      // Update server status
+      await storage.updateMailServerStatus(serverId, {
+        lastSyncedAt: new Date()
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error syncing server data:", error);
+      res.status(500).json({ message: "Failed to sync server data" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
