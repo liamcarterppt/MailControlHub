@@ -88,7 +88,11 @@ export default function MailServerPage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [addMailboxOpen, setAddMailboxOpen] = useState(false);
   const [addAliasOpen, setAddAliasOpen] = useState(false);
+  const [addSpamFilterOpen, setAddSpamFilterOpen] = useState(false);
+  const [addBackupJobOpen, setAddBackupJobOpen] = useState(false);
   const [selectedMailboxId, setSelectedMailboxId] = useState<number | null>(null);
+  const [selectedFilterId, setSelectedFilterId] = useState<number | null>(null);
+  const [selectedBackupId, setSelectedBackupId] = useState<number | null>(null);
 
   // Form schema for adding a mailbox
   const mailboxFormSchema = z.object({
@@ -107,6 +111,37 @@ export default function MailServerPage() {
   });
 
   type AliasFormData = z.infer<typeof aliasFormSchema>;
+  
+  // Form schema for adding a spam filter
+  const spamFilterFormSchema = z.object({
+    name: z.string().min(3, "Name must be at least 3 characters"),
+    ruleType: z.enum(["header", "body", "attachment", "sender", "recipient"], {
+      required_error: "Please select a rule type",
+    }),
+    action: z.enum(["block", "quarantine", "tag", "score"], {
+      required_error: "Please select an action",
+    }),
+    pattern: z.string().min(2, "Pattern must be at least 2 characters"),
+    description: z.string().optional(),
+    score: z.number().optional(),
+    isActive: z.boolean().default(true),
+  });
+  
+  type SpamFilterFormData = z.infer<typeof spamFilterFormSchema>;
+  
+  // Form schema for adding a backup job
+  const backupJobFormSchema = z.object({
+    name: z.string().min(3, "Name must be at least 3 characters"),
+    backupType: z.enum(["full", "incremental", "mailboxes", "config"], {
+      required_error: "Please select a backup type",
+    }),
+    destination: z.string().min(5, "Destination must be at least 5 characters"),
+    schedule: z.string().min(3, "Schedule must be at least 3 characters"),
+    retentionDays: z.number().min(1, "Retention must be at least 1 day").default(30),
+    encryptionKey: z.string().optional(),
+  });
+  
+  type BackupJobFormData = z.infer<typeof backupJobFormSchema>;
 
   // Fetch server details
   const { 
@@ -151,6 +186,39 @@ export default function MailServerPage() {
     queryFn: () => apiRequest("GET", `/api/mail-servers/${serverId}/dns`).then(res => res.json()),
     enabled: !!serverId && activeTab === "dns",
   });
+  
+  // Fetch spam filters
+  const {
+    data: spamFilters = [],
+    isLoading: spamFiltersLoading,
+    refetch: refetchSpamFilters,
+  } = useQuery({
+    queryKey: [`/api/mail-servers/${serverId}/spam-filters`],
+    queryFn: () => apiRequest("GET", `/api/mail-servers/${serverId}/spam-filters`).then(res => res.json()),
+    enabled: !!serverId && activeTab === "security",
+  });
+  
+  // Fetch backup jobs
+  const {
+    data: backupJobs = [],
+    isLoading: backupJobsLoading,
+    refetch: refetchBackupJobs,
+  } = useQuery({
+    queryKey: [`/api/mail-servers/${serverId}/backups`],
+    queryFn: () => apiRequest("GET", `/api/mail-servers/${serverId}/backups`).then(res => res.json()),
+    enabled: !!serverId && activeTab === "backups",
+  });
+  
+  // Fetch backup history (for the selected backup job)
+  const {
+    data: backupHistory = [],
+    isLoading: backupHistoryLoading,
+    refetch: refetchBackupHistory,
+  } = useQuery({
+    queryKey: [`/api/mail-servers/${serverId}/backups/${selectedBackupId}/history`],
+    queryFn: () => apiRequest("GET", `/api/mail-servers/${serverId}/backups/${selectedBackupId}/history`).then(res => res.json()),
+    enabled: !!serverId && !!selectedBackupId && activeTab === "backups",
+  });
 
   // Forms
   const mailboxForm = useForm<MailboxFormData>({
@@ -168,6 +236,31 @@ export default function MailServerPage() {
       sourceEmail: "",
       destinationEmail: "",
       mailboxId: undefined,
+    },
+  });
+  
+  const spamFilterForm = useForm<SpamFilterFormData>({
+    resolver: zodResolver(spamFilterFormSchema),
+    defaultValues: {
+      name: "",
+      ruleType: "header" as const,
+      action: "block" as const,
+      pattern: "",
+      description: "",
+      score: 5,
+      isActive: true,
+    },
+  });
+  
+  const backupJobForm = useForm<BackupJobFormData>({
+    resolver: zodResolver(backupJobFormSchema),
+    defaultValues: {
+      name: "",
+      backupType: "full" as const,
+      destination: "",
+      schedule: "0 2 * * *", // Daily at 2 AM
+      retentionDays: 30,
+      encryptionKey: "",
     },
   });
 
@@ -279,6 +372,143 @@ export default function MailServerPage() {
     onError: (error: Error) => {
       toast({
         title: "Failed to delete alias",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Add a new spam filter
+  const addSpamFilterMutation = useMutation({
+    mutationFn: (data: SpamFilterFormData) => {
+      return apiRequest("POST", `/api/mail-servers/${serverId}/spam-filters`, data).then(res => res.json());
+    },
+    onSuccess: () => {
+      toast({
+        title: "Spam Filter Added",
+        description: "The spam filter has been created successfully.",
+      });
+      setAddSpamFilterOpen(false);
+      spamFilterForm.reset();
+      refetchSpamFilters();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to add spam filter",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Toggle spam filter status
+  const toggleSpamFilterMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: number, isActive: boolean }) => {
+      return apiRequest("PATCH", `/api/mail-servers/${serverId}/spam-filters/${id}`, { isActive }).then(res => res.json());
+    },
+    onSuccess: () => {
+      toast({
+        title: "Spam Filter Updated",
+        description: "The spam filter status has been updated.",
+      });
+      refetchSpamFilters();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update spam filter",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Delete a spam filter
+  const deleteSpamFilterMutation = useMutation({
+    mutationFn: (filterId: number) => {
+      return apiRequest("DELETE", `/api/mail-servers/${serverId}/spam-filters/${filterId}`).then(res => res.json());
+    },
+    onSuccess: () => {
+      toast({
+        title: "Spam Filter Deleted",
+        description: "The spam filter has been removed.",
+      });
+      setSelectedFilterId(null);
+      refetchSpamFilters();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to delete spam filter",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Add a new backup job
+  const addBackupJobMutation = useMutation({
+    mutationFn: (data: BackupJobFormData) => {
+      return apiRequest("POST", `/api/mail-servers/${serverId}/backups`, data).then(res => res.json());
+    },
+    onSuccess: () => {
+      toast({
+        title: "Backup Job Added",
+        description: "The backup job has been created successfully.",
+      });
+      setAddBackupJobOpen(false);
+      backupJobForm.reset();
+      refetchBackupJobs();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to add backup job",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Run a backup job manually
+  const runBackupJobMutation = useMutation({
+    mutationFn: (jobId: number) => {
+      return apiRequest("POST", `/api/mail-servers/${serverId}/backups/${jobId}/run`).then(res => res.json());
+    },
+    onSuccess: () => {
+      toast({
+        title: "Backup Started",
+        description: "The backup job has been started. Check history for status.",
+      });
+      setTimeout(() => {
+        refetchBackupJobs();
+        if (selectedBackupId) {
+          refetchBackupHistory();
+        }
+      }, 1000);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to start backup",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Delete a backup job
+  const deleteBackupJobMutation = useMutation({
+    mutationFn: (jobId: number) => {
+      return apiRequest("DELETE", `/api/mail-servers/${serverId}/backups/${jobId}`).then(res => res.json());
+    },
+    onSuccess: () => {
+      toast({
+        title: "Backup Job Deleted",
+        description: "The backup job has been removed.",
+      });
+      setSelectedBackupId(null);
+      refetchBackupJobs();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to delete backup job",
         description: error.message,
         variant: "destructive",
       });

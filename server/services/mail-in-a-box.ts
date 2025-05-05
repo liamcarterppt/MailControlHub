@@ -711,8 +711,11 @@ export async function runBackupJob(serverId: number, jobId: number) {
       startedAt: new Date(),
       status: 'running',
       sizeBytes: null,
+      backupLocation: null,
       error: null,
-      completedAt: null
+      completedAt: null,
+      mailboxCount: null,
+      filesCount: null
     });
     
     // Update the backup job status
@@ -728,8 +731,11 @@ export async function runBackupJob(serverId: number, jobId: number) {
       startedAt: new Date(),
       status: 'failed',
       sizeBytes: null,
+      backupLocation: null,
       error: error instanceof Error ? error.message : String(error),
-      completedAt: new Date()
+      completedAt: new Date(),
+      mailboxCount: null,
+      filesCount: null
     });
     
     throw error;

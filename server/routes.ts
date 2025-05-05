@@ -3678,6 +3678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Update server status
       await storage.updateMailServerStatus(serverId, {
+        status: 'online',
         lastSyncedAt: new Date()
       });
       
