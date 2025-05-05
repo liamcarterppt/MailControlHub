@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -14,9 +14,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import { useMutation } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 
 const formSchema = z.object({
@@ -26,7 +24,14 @@ const formSchema = z.object({
 
 export default function Login() {
   const [location, navigate] = useLocation();
-  const { toast } = useToast();
+  const { user, loginMutation } = useAuth();
+  
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate("/dashboard");
+    }
+  }, [user, navigate]);
   
   // Define form
   const form = useForm<z.infer<typeof formSchema>>({
@@ -37,31 +42,13 @@ export default function Login() {
     },
   });
 
-  // Login mutation
-  const loginMutation = useMutation({
-    mutationFn: (values: z.infer<typeof formSchema>) => {
-      return apiRequest("POST", "/api/login", values);
-    },
-    onSuccess: () => {
-      toast({
-        title: "Login successful",
-        description: "Welcome back!",
-      });
-      navigate("/dashboard");
-    },
-    onError: (error) => {
-      toast({
-        title: "Login failed",
-        description: "Invalid username or password. Please try again.",
-        variant: "destructive",
-      });
-      console.error("Login failed:", error);
-    },
-  });
-
   // Submit handler
   function onSubmit(values: z.infer<typeof formSchema>) {
-    loginMutation.mutate(values);
+    loginMutation.mutate(values, {
+      onSuccess: () => {
+        navigate("/dashboard");
+      }
+    });
   }
 
   return (

@@ -2,6 +2,8 @@ import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { AuthProvider } from "@/hooks/use-auth";
+import { ProtectedRoute } from "@/lib/protected-route";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import Users from "@/pages/users";
@@ -21,22 +23,22 @@ import ResellerDashboard from "./pages/reseller-dashboard";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/dashboard" component={Dashboard} />
-      <Route path="/users" component={Users} />
-      <Route path="/domains" component={Domains} />
-      <Route path="/mail-queue" component={MailQueue} />
-      <Route path="/server-config" component={ServerConfig} />
-      <Route path="/security-settings" component={SecuritySettings} />
-      <Route path="/billing" component={Billing} />
-      <Route path="/referrals" component={Referrals} />
-      <Route path="/settings" component={Settings} />
+      <ProtectedRoute path="/" component={Dashboard} />
+      <ProtectedRoute path="/dashboard" component={Dashboard} />
+      <ProtectedRoute path="/users" component={Users} />
+      <ProtectedRoute path="/domains" component={Domains} />
+      <ProtectedRoute path="/mail-queue" component={MailQueue} />
+      <ProtectedRoute path="/server-config" component={ServerConfig} />
+      <ProtectedRoute path="/security-settings" component={SecuritySettings} />
+      <ProtectedRoute path="/billing" component={Billing} />
+      <ProtectedRoute path="/referrals" component={Referrals} />
+      <ProtectedRoute path="/settings" component={Settings} />
+      <ProtectedRoute path="/checkout" component={Checkout} />
+      <ProtectedRoute path="/subscribe/:priceId" component={Subscribe} />
+      <ProtectedRoute path="/reseller" component={ResellerDashboard} />
+      <ProtectedRoute path="/reseller/dashboard" component={ResellerDashboard} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
-      <Route path="/checkout" component={Checkout} />
-      <Route path="/subscribe/:priceId" component={Subscribe} />
-      <Route path="/reseller" component={ResellerDashboard} />
-      <Route path="/reseller/dashboard" component={ResellerDashboard} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -45,8 +47,10 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router />
-      <Toaster />
+      <AuthProvider>
+        <Router />
+        <Toaster />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
