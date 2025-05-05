@@ -29,7 +29,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Loader, ChevronRight, Plus, DollarSign, PieChart, Users, Settings } from "lucide-react";
+import { 
+  Loader, 
+  ChevronRight, 
+  Plus, 
+  DollarSign, 
+  PieChart, 
+  Users, 
+  Settings, 
+  Copy, 
+  Mail, 
+  Calendar 
+} from "lucide-react";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -304,7 +315,7 @@ export default function ResellerDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold flex items-center">
-                  <UsersIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <Users className="h-4 w-4 mr-2 text-muted-foreground" />
                   {userData?.resellerData?.customerCount || 0}
                   <span className="text-xs text-muted-foreground ml-2">
                     / {userData?.resellerData?.settings?.maxCustomers || 100}
@@ -319,7 +330,7 @@ export default function ResellerDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold flex items-center">
-                  <PieChartIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <PieChart className="h-4 w-4 mr-2 text-muted-foreground" />
                   {userData?.resellerData?.settings?.commissionRate || 10}%
                 </div>
               </CardContent>
@@ -331,7 +342,7 @@ export default function ResellerDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold flex items-center">
-                  <DollarSignIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <DollarSign className="h-4 w-4 mr-2 text-muted-foreground" />
                   {formatCurrency(0)} {/* Replace with actual revenue data */}
                 </div>
               </CardContent>
@@ -354,7 +365,7 @@ export default function ResellerDashboard() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold">Your Customers</h2>
             <Button onClick={() => setIsNewCustomerDialogOpen(true)}>
-              <PlusIcon className="h-4 w-4 mr-2" />
+              <Plus className="h-4 w-4 mr-2" />
               Add Customer
             </Button>
           </div>
@@ -394,7 +405,7 @@ export default function ResellerDashboard() {
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm">
                             Manage
-                            <ChevronRightIcon className="h-4 w-4 ml-1" />
+                            <ChevronRight className="h-4 w-4 ml-1" />
                           </Button>
                         </TableCell>
                       </TableRow>
