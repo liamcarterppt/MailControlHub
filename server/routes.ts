@@ -3124,7 +3124,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate the API credentials by making a test request
       try {
         const credentials = {
-          apiUrl,
+          apiEndpoint: apiUrl,
           apiKey
         };
         
@@ -3141,7 +3141,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: user.id,
         name,
         hostname,
-        apiUrl,
+        apiEndpoint: apiUrl,
         apiKey,
         status: 'unknown',
         ipAddress: '', // Will be filled from API response

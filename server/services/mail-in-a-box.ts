@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import { storage } from '../storage';
-import { DnsRecord, Mailbox, EmailAlias } from '@shared/schema';
+import { DnsRecord, Mailbox, EmailAlias, MailServer } from '@shared/schema';
 
 interface MailServerCredentials {
   apiEndpoint: string;
@@ -19,7 +19,7 @@ export async function makeRequest(
     'Content-Type': 'application/json',
   };
 
-  const url = `${credentials.apiUrl.replace(/\/$/, '')}/${endpoint.replace(/^\//, '')}`;
+  const url = `${credentials.apiEndpoint.replace(/\/$/, '')}/${endpoint.replace(/^\//, '')}`;
   
   const options: any = {
     method,
@@ -52,7 +52,7 @@ export async function makeRequest(
 }
 
 // Get server information
-export async function getServerInfo(serverId: number) {
+export async function getServerInfo(serverId: number): Promise<{status: string, version?: string, error?: string}> {
   const server = await storage.getMailServerById(serverId);
   
   if (!server) {
@@ -60,12 +60,12 @@ export async function getServerInfo(serverId: number) {
   }
   
   const credentials = {
-    apiUrl: server.apiUrl,
+    apiEndpoint: server.apiEndpoint,
     apiKey: server.apiKey,
   };
   
   try {
-    const info = await makeRequest(credentials, '/system/status');
+    const info: any = await makeRequest(credentials, '/system/status');
     
     // Update server status in the database
     await storage.updateMailServerStatus(serverId, {
@@ -75,8 +75,8 @@ export async function getServerInfo(serverId: number) {
     });
     
     return {
-      ...info,
       status: 'online',
+      version: info.version,
     };
   } catch (error) {
     // Update server status to offline
@@ -102,29 +102,31 @@ export async function getDnsRecords(serverId: number) {
   }
   
   const credentials = {
-    apiUrl: server.apiUrl,
+    apiEndpoint: server.apiEndpoint,
     apiKey: server.apiKey,
   };
   
   try {
-    const response = await makeRequest(credentials, '/dns/zones');
+    const response: any = await makeRequest(credentials, '/dns/zones');
     
     // Process the response to match our schema
     const records: Omit<DnsRecord, 'id' | 'createdAt' | 'updatedAt'>[] = [];
     
     // Process the response data structure based on Mail-in-a-Box API
-    for (const zone of response) {
-      if (zone.records && Array.isArray(zone.records)) {
-        for (const record of zone.records) {
-          records.push({
-            serverId,
-            recordType: record.type,
-            name: record.name,
-            value: record.value,
-            priority: record.priority,
-            ttl: record.ttl || 3600,
-            isManaged: record.managed || false,
-          });
+    if (Array.isArray(response)) {
+      for (const zone of response) {
+        if (zone.records && Array.isArray(zone.records)) {
+          for (const record of zone.records) {
+            records.push({
+              serverId,
+              recordType: record.type,
+              name: record.name,
+              value: record.value,
+              priority: record.priority,
+              ttl: record.ttl || 3600,
+              isManaged: record.managed || false,
+            });
+          }
         }
       }
     }
@@ -148,21 +150,20 @@ export async function getMailboxes(serverId: number) {
   }
   
   const credentials = {
-    apiUrl: server.apiUrl,
+    apiEndpoint: server.apiEndpoint,
     apiKey: server.apiKey,
   };
   
   try {
-    const response = await makeRequest(credentials, '/mail/users');
+    const response: Record<string, any> = await makeRequest(credentials, '/mail/users');
     
     // Process the response to match our schema
     const mailboxes: Omit<Mailbox, 'id' | 'createdAt' | 'updatedAt'>[] = [];
     
     // Mail-in-a-Box returns email accounts in a specific format
-    for (const email in response) {
-      if (response[email] && typeof response[email] === 'object') {
-        const details = response[email];
-        
+    Object.keys(response).forEach(email => {
+      const details = response[email];
+      if (details && typeof details === 'object') {
         mailboxes.push({
           serverId,
           email,
@@ -173,7 +174,7 @@ export async function getMailboxes(serverId: number) {
           lastLogin: null,
         });
       }
-    }
+    });
     
     // Replace all mailboxes in our database
     await storage.replaceAllMailboxes(serverId, mailboxes);
@@ -194,7 +195,7 @@ export async function createMailbox(serverId: number, data: { email: string; nam
   }
   
   const credentials = {
-    apiUrl: server.apiUrl,
+    apiEndpoint: server.apiEndpoint,
     apiKey: server.apiKey,
   };
   
@@ -234,7 +235,7 @@ export async function deleteMailbox(serverId: number, mailboxId: number) {
   }
   
   const credentials = {
-    apiUrl: server.apiUrl,
+    apiEndpoint: server.apiEndpoint,
     apiKey: server.apiKey,
   };
   
@@ -262,12 +263,12 @@ export async function getEmailAliases(serverId: number) {
   }
   
   const credentials = {
-    apiUrl: server.apiUrl,
+    apiEndpoint: server.apiEndpoint,
     apiKey: server.apiKey,
   };
   
   try {
-    const response = await makeRequest(credentials, '/mail/aliases');
+    const response: Record<string, any> = await makeRequest(credentials, '/mail/aliases');
     
     // Process the response to match our schema
     const aliases: Omit<EmailAlias, 'id' | 'createdAt' | 'updatedAt'>[] = [];
@@ -280,9 +281,9 @@ export async function getEmailAliases(serverId: number) {
     });
     
     // Mail-in-a-Box returns aliases in a specific format
-    for (const sourceEmail in response) {
-      if (response[sourceEmail] && typeof response[sourceEmail] === 'object') {
-        const details = response[sourceEmail];
+    Object.keys(response).forEach(sourceEmail => {
+      const details = response[sourceEmail];
+      if (details && typeof details === 'object') {
         const destinationEmails = Array.isArray(details.forward_to) ? details.forward_to : [details.forward_to];
         
         for (const destinationEmail of destinationEmails) {
@@ -298,7 +299,7 @@ export async function getEmailAliases(serverId: number) {
           });
         }
       }
-    }
+    });
     
     // Replace all aliases in our database
     await storage.replaceAllEmailAliases(serverId, aliases);
@@ -323,7 +324,7 @@ export async function createEmailAlias(serverId: number, data: {
   }
   
   const credentials = {
-    apiUrl: server.apiUrl,
+    apiEndpoint: server.apiEndpoint,
     apiKey: server.apiKey,
   };
   
@@ -357,13 +358,16 @@ export async function deleteEmailAlias(serverId: number, aliasId: number) {
     throw new Error('Server not found');
   }
   
-  const alias = await storage.getEmailAliasById(aliasId);
-  if (!alias || alias.serverId !== serverId) {
+  // Get alias from database
+  const aliases = await storage.getEmailAliasesByServerId(serverId);
+  const alias = aliases.find(a => a.id === aliasId);
+  
+  if (!alias) {
     throw new Error('Email alias not found');
   }
   
   const credentials = {
-    apiUrl: server.apiUrl,
+    apiEndpoint: server.apiEndpoint,
     apiKey: server.apiKey,
   };
   
