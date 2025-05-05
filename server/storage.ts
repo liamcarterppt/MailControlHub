@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, count, sum } from "drizzle-orm";
+import { eq, and, desc, sql, count, sum, inArray } from "drizzle-orm";
 import { db } from "@db";
 import {
   users,
@@ -214,13 +214,33 @@ export const storage = {
 
   // Email account operations
   async getEmailAccountsByUserId(userId: number): Promise<EmailAccount[]> {
-    return db.query.emailAccounts.findMany({
-      where: eq(emailAccounts.userId, userId),
-      orderBy: [desc(emailAccounts.createdAt)],
-      with: {
-        domain: true
+    // Use a more direct query without the relation to avoid potential issues
+    const accounts = await db.select().from(emailAccounts)
+      .where(eq(emailAccounts.userId, userId))
+      .orderBy(desc(emailAccounts.createdAt));
+      
+    // Fetch domain information separately if needed
+    const domainsMap = new Map<number, Domain>();
+    
+    if (accounts.length > 0) {
+      // Get unique domain IDs
+      const domainIdsSet = new Set<number>();
+      accounts.forEach(acc => domainIdsSet.add(acc.domainId));
+      const domainIds = Array.from(domainIdsSet);
+      
+      const relatedDomains = await db.select().from(domains)
+        .where(inArray(domains.id, domainIds));
+        
+      for (const domain of relatedDomains) {
+        domainsMap.set(domain.id, domain);
       }
-    });
+    }
+    
+    // Return accounts with manually attached domain info
+    return accounts.map(account => ({
+      ...account,
+      domain: domainsMap.get(account.domainId)
+    })) as EmailAccount[];
   },
 
   async getEmailAccountsByDomainId(domainId: number): Promise<EmailAccount[]> {
@@ -231,12 +251,25 @@ export const storage = {
   },
 
   async getEmailAccountById(id: number): Promise<EmailAccount | undefined> {
-    return db.query.emailAccounts.findFirst({
-      where: eq(emailAccounts.id, id),
-      with: {
-        domain: true
-      }
-    });
+    // Use a more direct approach without relations to avoid issues
+    const account = await db.select().from(emailAccounts)
+      .where(eq(emailAccounts.id, id))
+      .limit(1)
+      .then(results => results[0]);
+      
+    if (!account) return undefined;
+    
+    // Get the associated domain separately
+    const domain = await db.select().from(domains)
+      .where(eq(domains.id, account.domainId))
+      .limit(1)
+      .then(results => results[0] || null);
+      
+    // Return the account with the domain manually attached
+    return {
+      ...account,
+      domain
+    } as EmailAccount;
   },
 
   async insertEmailAccount(accountData: Omit<EmailAccount, "id" | "createdAt" | "updatedAt" | "storageUsed" | "isActive">): Promise<EmailAccount> {
@@ -331,13 +364,35 @@ export const storage = {
 
   // Activity logs
   async getRecentActivityLogs(limit = 10): Promise<ActivityLog[]> {
-    return db.query.activityLogs.findMany({
-      orderBy: [desc(activityLogs.createdAt)],
-      limit,
-      with: {
-        user: true
-      }
+    // Fetch logs directly
+    const logs = await db.select().from(activityLogs)
+      .orderBy(desc(activityLogs.createdAt))
+      .limit(limit);
+      
+    // Get all unique user IDs
+    const userIds = new Set<number>();
+    logs.forEach(log => {
+      if (log.userId) userIds.add(log.userId);
     });
+    
+    // Fetch users separately
+    const userIdsArray = Array.from(userIds);
+    const relatedUsers: Record<number, User> = {};
+    
+    if (userIdsArray.length > 0) {
+      const usersResult = await db.select().from(users)
+        .where(inArray(users.id, userIdsArray));
+      
+      users.forEach(user => {
+        relatedUsers[user.id] = user;
+      });
+    }
+    
+    // Attach users to logs manually
+    return logs.map(log => ({
+      ...log,
+      user: log.userId ? relatedUsers[log.userId] : null
+    })) as ActivityLog[];
   },
 
   async insertActivityLog(logData: Omit<ActivityLog, "id" | "createdAt">): Promise<ActivityLog> {
@@ -361,12 +416,35 @@ export const storage = {
 
   // Referrals
   async getUserReferrals(userId: number): Promise<Referral[]> {
-    return db.query.referrals.findMany({
-      where: eq(referrals.referrerId, userId),
-      with: {
-        referredUser: true
-      }
+    // Fetch referrals directly
+    const userReferrals = await db.select().from(referrals)
+      .where(eq(referrals.referrerId, userId))
+      .orderBy(desc(referrals.createdAt));
+      
+    // Get all unique referred user IDs
+    const referredUserIds = new Set<number>();
+    userReferrals.forEach(ref => {
+      if (ref.referredUserId) referredUserIds.add(ref.referredUserId);
     });
+    
+    // Fetch referred users separately
+    const referredUserIdsArray = Array.from(referredUserIds);
+    const relatedUsers: Record<number, User> = {};
+    
+    if (referredUserIdsArray.length > 0) {
+      const referredUsers = await db.select().from(users)
+        .where(inArray(users.id, referredUserIdsArray));
+      
+      referredUsers.forEach(user => {
+        relatedUsers[user.id] = user;
+      });
+    }
+    
+    // Attach referred users to referrals manually
+    return userReferrals.map(referral => ({
+      ...referral,
+      referredUser: referral.referredUserId ? relatedUsers[referral.referredUserId] : null
+    })) as Referral[];
   },
 
   async getReferralStats(userId: number): Promise<{
