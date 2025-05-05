@@ -179,6 +179,28 @@ export const referralsRelations = relations(referrals, ({ one }) => ({
   referredUser: one(users, { fields: [referrals.referredUserId], references: [users.id] }),
 }));
 
+// Invoices table
+export const invoices = pgTable('invoices', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  stripeInvoiceId: text('stripe_invoice_id'),
+  amount: integer('amount').notNull(), // in cents
+  status: text('status').notNull().default('pending'), // pending, paid, failed, canceled
+  description: text('description'),
+  periodStart: timestamp('period_start'),
+  periodEnd: timestamp('period_end'),
+  paidAt: timestamp('paid_at'),
+  planName: text('plan_name'),
+  invoiceUrl: text('invoice_url'), // URL to Stripe hosted invoice
+  receiptUrl: text('receipt_url'), // URL to Stripe hosted receipt
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const invoicesRelations = relations(invoices, ({ one }) => ({
+  user: one(users, { fields: [invoices.userId], references: [users.id] }),
+}));
+
 // Zod schemas
 export const insertUserSchema = createInsertSchema(users, {
   username: (schema) => schema.min(3, "Username must be at least 3 characters"),
@@ -252,3 +274,5 @@ export type ResellerSettingInsert = z.infer<typeof insertResellerSettingsSchema>
 
 export type ResellerCommissionTier = typeof resellerCommissionTiers.$inferSelect;
 export type ResellerCommissionTierInsert = z.infer<typeof insertResellerCommissionTierSchema>;
+
+export type Invoice = typeof invoices.$inferSelect;

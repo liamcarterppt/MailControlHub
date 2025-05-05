@@ -10,6 +10,7 @@ import {
   activityLogs,
   subscriptionPlans,
   referrals,
+  invoices,
   User,
   Domain,
   EmailAccount,
@@ -18,7 +19,8 @@ import {
   ActivityLog,
   SubscriptionPlan,
   Referral,
-  MailQueueItem
+  MailQueueItem,
+  Invoice
 } from "@shared/schema";
 import { randomBytes } from "crypto";
 
@@ -297,6 +299,57 @@ export const storage = {
       completedReferrals: completedQuery[0]?.count || 0,
       totalEarnings: earningsQuery[0]?.total || 0
     };
+  },
+
+  // Invoice operations
+  async getInvoicesByUserId(userId: number): Promise<Invoice[]> {
+    return db.query.invoices.findMany({
+      where: eq(invoices.userId, userId),
+      orderBy: [desc(invoices.createdAt)]
+    });
+  },
+
+  async getInvoiceById(id: number): Promise<Invoice | undefined> {
+    return db.query.invoices.findFirst({
+      where: eq(invoices.id, id)
+    });
+  },
+
+  async getInvoiceByStripeId(stripeInvoiceId: string): Promise<Invoice | undefined> {
+    return db.query.invoices.findFirst({
+      where: eq(invoices.stripeInvoiceId, stripeInvoiceId)
+    });
+  },
+
+  async insertInvoice(invoiceData: Omit<Invoice, "id" | "createdAt" | "updatedAt">): Promise<Invoice> {
+    const [invoice] = await db.insert(invoices).values(invoiceData).returning();
+    return invoice;
+  },
+
+  async updateInvoiceStatus(id: number, status: string, paidAt?: Date): Promise<Invoice> {
+    const [invoice] = await db
+      .update(invoices)
+      .set({ 
+        status, 
+        paidAt, 
+        updatedAt: new Date() 
+      })
+      .where(eq(invoices.id, id))
+      .returning();
+    return invoice;
+  },
+
+  async updateInvoiceUrls(id: number, invoiceUrl: string, receiptUrl?: string): Promise<Invoice> {
+    const [invoice] = await db
+      .update(invoices)
+      .set({ 
+        invoiceUrl, 
+        receiptUrl, 
+        updatedAt: new Date() 
+      })
+      .where(eq(invoices.id, id))
+      .returning();
+    return invoice;
   },
 
   // Dashboard statistics
