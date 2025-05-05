@@ -1,10 +1,5 @@
 import { authenticator } from 'otplib';
-import * as qrcode from 'qrcode';
-
-// Configure the authenticator
-authenticator.options = {
-  window: 1, // Allow a time skew of +/- 1 time step
-};
+import QRCode from 'qrcode';
 
 /**
  * Generate a new 2FA secret key
@@ -20,11 +15,13 @@ export function generateSecret(): string {
  */
 export function generateBackupCodes(count = 10): string[] {
   const codes: string[] = [];
+  
   for (let i = 0; i < count; i++) {
-    // Generate an 8-character alphanumeric code
-    const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+    // Generate a random string that is 10 characters long
+    const code = Math.random().toString(36).substring(2, 12).toUpperCase();
     codes.push(code);
   }
+  
   return codes;
 }
 
@@ -35,7 +32,12 @@ export function generateBackupCodes(count = 10): string[] {
  * @returns boolean indicating if token is valid
  */
 export function verifyToken(token: string, secret: string): boolean {
-  return authenticator.verify({ token, secret });
+  try {
+    return authenticator.verify({ token, secret });
+  } catch (error) {
+    console.error('Error verifying token:', error);
+    return false;
+  }
 }
 
 /**
@@ -49,10 +51,14 @@ export async function generateQRCode(
   secret: string
 ): Promise<string> {
   const serviceName = 'Mail-in-a-Box SaaS';
-  const otpauth = authenticator.keyuri(user.email, serviceName, secret);
+  const otpauth = authenticator.keyuri(user.username, serviceName, secret);
   
-  // Generate a QR code as a data URL
-  return await qrcode.toDataURL(otpauth);
+  try {
+    return await QRCode.toDataURL(otpauth);
+  } catch (error) {
+    console.error('Error generating QR code:', error);
+    throw new Error('Failed to generate QR code');
+  }
 }
 
 /**
@@ -62,16 +68,21 @@ export async function generateQRCode(
  * @returns Object containing whether the code is valid and remaining codes (if used)
  */
 export function verifyBackupCode(
-  code: string,
+  code: string, 
   storedCodes: string[]
 ): { isValid: boolean; remainingCodes: string[] } {
   const normalizedCode = code.trim().toUpperCase();
+  const codeIndex = storedCodes.indexOf(normalizedCode);
   
-  if (storedCodes.includes(normalizedCode)) {
-    // Remove the used code from the array
-    const remainingCodes = storedCodes.filter(c => c !== normalizedCode);
-    return { isValid: true, remainingCodes };
+  if (codeIndex === -1) {
+    return { isValid: false, remainingCodes: storedCodes };
   }
   
-  return { isValid: false, remainingCodes: storedCodes };
+  // Remove the used code
+  const remainingCodes = [
+    ...storedCodes.slice(0, codeIndex),
+    ...storedCodes.slice(codeIndex + 1)
+  ];
+  
+  return { isValid: true, remainingCodes };
 }
