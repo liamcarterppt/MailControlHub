@@ -14,12 +14,14 @@ import {
   insertDomainSchema,
   insertEmailAccountSchema,
   insertServerConfigSchema,
+  insertEmailTemplateSchema,
   users,
   domains,
   emailAccounts,
   resellerSettings,
   resellerCommissionTiers,
-  invoices
+  invoices,
+  emailTemplates
 } from "@shared/schema";
 import { eq, and, or, asc, desc, sql } from "drizzle-orm";
 
@@ -1044,6 +1046,135 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(plans);
     } catch (error) {
       console.error("Error fetching subscription plans:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Email Templates routes
+  app.get("/api/email-templates", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const { category } = req.query;
+      
+      const templates = await storage.getEmailTemplates(
+        userId, 
+        category ? String(category) : undefined
+      );
+      
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching email templates:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/email-templates/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const { id } = req.params;
+      
+      const template = await storage.getEmailTemplateById(parseInt(id), userId);
+      
+      if (!template) {
+        return res.status(404).json({ message: "Email template not found" });
+      }
+      
+      res.json(template);
+    } catch (error) {
+      console.error("Error fetching email template:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/email-templates", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      
+      const validatedData = insertEmailTemplateSchema.parse(req.body);
+      
+      const template = await storage.createEmailTemplate({
+        ...validatedData,
+        userId,
+        isDefault: false
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "email_template.create",
+        details: { name: template.name, category: template.category },
+        ipAddress: req.ip || null
+      });
+      
+      res.status(201).json(template);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ errors: error.errors });
+      }
+      console.error("Error creating email template:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.put("/api/email-templates/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const { id } = req.params;
+      
+      // Validate request body but exclude fields that shouldn't be updated directly
+      const { userId: _, createdAt, updatedAt, id: __, ...updateData } = req.body;
+      
+      // Update template
+      const template = await storage.updateEmailTemplate(parseInt(id), userId, updateData);
+      
+      if (!template) {
+        return res.status(404).json({ message: "Email template not found" });
+      }
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "email_template.update",
+        details: { id, name: template.name },
+        ipAddress: req.ip || null
+      });
+      
+      res.json(template);
+    } catch (error) {
+      console.error("Error updating email template:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.delete("/api/email-templates/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const { id } = req.params;
+      
+      // Get template first to use in activity log
+      const template = await storage.getEmailTemplateById(parseInt(id), userId);
+      
+      if (!template) {
+        return res.status(404).json({ message: "Email template not found" });
+      }
+      
+      const deleted = await storage.deleteEmailTemplate(parseInt(id), userId);
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Email template not found" });
+      }
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "email_template.delete",
+        details: { id, name: template.name },
+        ipAddress: req.ip || null
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting email template:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

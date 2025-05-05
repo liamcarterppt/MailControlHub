@@ -11,6 +11,7 @@ import {
   subscriptionPlans,
   referrals,
   invoices,
+  emailTemplates,
   User,
   Domain,
   EmailAccount,
@@ -18,6 +19,7 @@ import {
   ServiceStatusItem,
   ActivityLog,
   SubscriptionPlan,
+  EmailTemplate,
   Referral,
   MailQueueItem,
   Invoice
@@ -352,6 +354,66 @@ export const storage = {
     return invoice;
   },
 
+  // Email Templates operations
+  async getEmailTemplates(userId: number, category?: string): Promise<EmailTemplate[]> {
+    let query = db.select().from(emailTemplates).where(eq(emailTemplates.userId, userId));
+    
+    if (category) {
+      query = query.where(eq(emailTemplates.category, category));
+    }
+    
+    return query.orderBy(desc(emailTemplates.updatedAt));
+  },
+  
+  async getEmailTemplateById(id: number, userId: number): Promise<EmailTemplate | undefined> {
+    const results = await db
+      .select()
+      .from(emailTemplates)
+      .where(and(
+        eq(emailTemplates.id, id),
+        eq(emailTemplates.userId, userId)
+      ))
+      .limit(1);
+    
+    return results.length > 0 ? results[0] : undefined;
+  },
+  
+  async createEmailTemplate(templateData: Omit<EmailTemplate, "id" | "createdAt" | "updatedAt">): Promise<EmailTemplate> {
+    const [template] = await db.insert(emailTemplates).values(templateData).returning();
+    return template;
+  },
+  
+  async updateEmailTemplate(id: number, userId: number, data: Partial<Omit<EmailTemplate, "id" | "userId" | "createdAt" | "updatedAt">>): Promise<EmailTemplate | undefined> {
+    // Make sure this template belongs to the user
+    const template = await this.getEmailTemplateById(id, userId);
+    
+    if (!template) {
+      return undefined;
+    }
+    
+    const [updatedTemplate] = await db
+      .update(emailTemplates)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(
+        eq(emailTemplates.id, id),
+        eq(emailTemplates.userId, userId)
+      ))
+      .returning();
+      
+    return updatedTemplate;
+  },
+  
+  async deleteEmailTemplate(id: number, userId: number): Promise<boolean> {
+    const result = await db
+      .delete(emailTemplates)
+      .where(and(
+        eq(emailTemplates.id, id),
+        eq(emailTemplates.userId, userId)
+      ));
+      
+    return result.rowCount ? result.rowCount > 0 : false;
+  },
+  
   // Dashboard statistics
   async getDashboardStats(userId: number): Promise<{
     totalEmailAccounts: number;

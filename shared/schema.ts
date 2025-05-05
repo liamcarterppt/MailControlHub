@@ -180,6 +180,25 @@ export const referralsRelations = relations(referrals, ({ one }) => ({
   referredUser: one(users, { fields: [referrals.referredUserId], references: [users.id] }),
 }));
 
+// Email Templates table
+export const emailTemplates = pgTable('email_templates', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  name: text('name').notNull(),
+  subject: text('subject').notNull(),
+  bodyHtml: text('body_html').notNull(),
+  bodyText: text('body_text'),
+  variables: jsonb('variables'),
+  category: text('category').default('general'),
+  isDefault: boolean('is_default').default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const emailTemplatesRelations = relations(emailTemplates, ({ one }) => ({
+  user: one(users, { fields: [emailTemplates.userId], references: [users.id] }),
+}));
+
 // Invoices table
 export const invoices = pgTable('invoices', {
   id: serial('id').primaryKey(),
@@ -275,5 +294,15 @@ export type ResellerSettingInsert = z.infer<typeof insertResellerSettingsSchema>
 
 export type ResellerCommissionTier = typeof resellerCommissionTiers.$inferSelect;
 export type ResellerCommissionTierInsert = z.infer<typeof insertResellerCommissionTierSchema>;
+
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates, {
+  name: (schema) => schema.min(2, "Name must be at least 2 characters"),
+  subject: (schema) => schema.min(2, "Subject must be at least 2 characters"),
+  bodyHtml: (schema) => schema.min(5, "HTML body must be at least 5 characters"),
+}).omit({ id: true, createdAt: true, updatedAt: true, isDefault: true });
+
+export type EmailTemplateInsert = z.infer<typeof insertEmailTemplateSchema>;
 
 export type Invoice = typeof invoices.$inferSelect;
