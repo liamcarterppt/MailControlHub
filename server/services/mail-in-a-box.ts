@@ -13,7 +13,7 @@ export async function makeRequest(
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
   body?: any
-) {
+): Promise<unknown> {
   const headers: Record<string, string> = {
     'Authorization': `Basic ${Buffer.from(`admin:${credentials.apiKey}`).toString('base64')}`,
     'Content-Type': 'application/json',
@@ -65,7 +65,8 @@ export async function getServerInfo(serverId: number): Promise<{status: string, 
   };
   
   try {
-    const info: any = await makeRequest(credentials, '/system/status');
+    const rawInfo = await makeRequest(credentials, '/system/status');
+    const info = rawInfo as { version?: string, status?: string };
     
     // Update server status in the database
     await storage.updateMailServerStatus(serverId, {
@@ -107,14 +108,15 @@ export async function getDnsRecords(serverId: number) {
   };
   
   try {
-    const response: any = await makeRequest(credentials, '/dns/zones');
+    const response = await makeRequest(credentials, '/dns/zones');
     
     // Process the response to match our schema
     const records: Omit<DnsRecord, 'id' | 'createdAt' | 'updatedAt'>[] = [];
     
     // Process the response data structure based on Mail-in-a-Box API
-    if (Array.isArray(response)) {
-      for (const zone of response) {
+    const zones = response as any[];
+    if (Array.isArray(zones)) {
+      for (const zone of zones) {
         if (zone.records && Array.isArray(zone.records)) {
           for (const record of zone.records) {
             records.push({
@@ -155,7 +157,7 @@ export async function getMailboxes(serverId: number) {
   };
   
   try {
-    const response: Record<string, any> = await makeRequest(credentials, '/mail/users');
+    const response = await makeRequest(credentials, '/mail/users') as Record<string, any>;
     
     // Process the response to match our schema
     const mailboxes: Omit<Mailbox, 'id' | 'createdAt' | 'updatedAt'>[] = [];
@@ -268,7 +270,7 @@ export async function getEmailAliases(serverId: number) {
   };
   
   try {
-    const response: Record<string, any> = await makeRequest(credentials, '/mail/aliases');
+    const response = await makeRequest(credentials, '/mail/aliases') as Record<string, any>;
     
     // Process the response to match our schema
     const aliases: Omit<EmailAlias, 'id' | 'createdAt' | 'updatedAt'>[] = [];
