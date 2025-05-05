@@ -3070,6 +3070,358 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Mail-in-a-Box Server Management Routes
+  app.get("/api/mail-servers", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const servers = await storage.getMailServersByUserId(user.id);
+      
+      // For each server, check status if it hasn't been checked recently
+      const now = new Date();
+      const processedServers = await Promise.all(servers.map(async (server) => {
+        // If the server hasn't been synced in the last 5 minutes, or status is unknown, check it
+        const needsStatusCheck = !server.lastSyncedAt || 
+          (now.getTime() - server.lastSyncedAt.getTime() > 5 * 60 * 1000) || 
+          server.status === 'unknown';
+          
+        if (needsStatusCheck) {
+          try {
+            const serverInfo = await mailInABoxService.getServerInfo(server.id);
+            return {
+              ...server,
+              status: serverInfo.status,
+              version: serverInfo.version || server.version
+            };
+          } catch (error) {
+            console.error(`Error checking server ${server.id} status:`, error);
+            return {
+              ...server,
+              status: 'offline'
+            };
+          }
+        }
+        
+        return server;
+      }));
+      
+      res.json(processedServers);
+    } catch (error) {
+      console.error("Error fetching mail servers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers", isAuthenticated, async (req, res) => {
+    try {
+      const { name, hostname, apiUrl, apiKey } = req.body;
+      
+      if (!name || !hostname || !apiUrl || !apiKey) {
+        return res.status(400).json({ message: "Name, hostname, API URL and API key are required" });
+      }
+      
+      const user = req.user as any;
+      
+      // Validate the API credentials by making a test request
+      try {
+        const credentials = {
+          apiUrl,
+          apiKey
+        };
+        
+        await mailInABoxService.makeRequest(credentials, '/system/status');
+      } catch (error) {
+        console.error("Error validating Mail-in-a-Box credentials:", error);
+        return res.status(400).json({ 
+          message: "Could not connect to Mail-in-a-Box server with provided credentials" 
+        });
+      }
+      
+      // Create server in database
+      const server = await storage.insertMailServer({
+        userId: user.id,
+        name,
+        hostname,
+        apiUrl,
+        apiKey,
+        status: 'unknown',
+        ipAddress: '', // Will be filled from API response
+        isActive: true
+      });
+      
+      // Get server info to update status
+      try {
+        await mailInABoxService.getServerInfo(server.id);
+      } catch (error) {
+        console.error(`Error getting info for new server ${server.id}:`, error);
+      }
+      
+      res.status(201).json(server);
+    } catch (error) {
+      console.error("Error creating mail server:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/mail-servers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to access this server" });
+      }
+      
+      // Get latest server info
+      const serverInfo = await mailInABoxService.getServerInfo(serverId);
+      
+      res.json({
+        ...server,
+        info: serverInfo
+      });
+    } catch (error) {
+      console.error(`Error fetching mail server:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.delete("/api/mail-servers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to delete this server" });
+      }
+      
+      // Delete server
+      await storage.deleteMailServer(serverId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error(`Error deleting mail server:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // DNS Records Management
+  app.get("/api/mail-servers/:id/dns", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to access this server" });
+      }
+      
+      // Fetch DNS records from Mail-in-a-Box and update database
+      const dnsRecords = await mailInABoxService.getDnsRecords(serverId);
+      
+      res.json(dnsRecords);
+    } catch (error) {
+      console.error(`Error fetching DNS records:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Mailbox Management
+  app.get("/api/mail-servers/:id/mailboxes", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to access this server" });
+      }
+      
+      // Fetch mailboxes from Mail-in-a-Box and update database
+      const mailboxes = await mailInABoxService.getMailboxes(serverId);
+      
+      res.json(mailboxes);
+    } catch (error) {
+      console.error(`Error fetching mailboxes:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/mailboxes", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const { email, name, password } = req.body;
+      const user = req.user as any;
+      
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      // Create mailbox on Mail-in-a-Box server
+      const mailbox = await mailInABoxService.createMailbox(serverId, {
+        email,
+        name,
+        password
+      });
+      
+      res.status(201).json(mailbox);
+    } catch (error) {
+      console.error(`Error creating mailbox:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.delete("/api/mail-servers/:serverId/mailboxes/:id", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.serverId);
+      const mailboxId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      // Delete mailbox from Mail-in-a-Box server
+      await mailInABoxService.deleteMailbox(serverId, mailboxId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error(`Error deleting mailbox:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Email Aliases Management
+  app.get("/api/mail-servers/:id/aliases", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to access this server" });
+      }
+      
+      // Fetch email aliases from Mail-in-a-Box and update database
+      const aliases = await mailInABoxService.getEmailAliases(serverId);
+      
+      res.json(aliases);
+    } catch (error) {
+      console.error(`Error fetching email aliases:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/aliases", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.id);
+      const { sourceEmail, destinationEmail, mailboxId } = req.body;
+      const user = req.user as any;
+      
+      if (!sourceEmail || !destinationEmail) {
+        return res.status(400).json({ message: "Source email and destination email are required" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      // Create email alias on Mail-in-a-Box server
+      const alias = await mailInABoxService.createEmailAlias(serverId, {
+        sourceEmail,
+        destinationEmail,
+        mailboxId
+      });
+      
+      res.status(201).json(alias);
+    } catch (error) {
+      console.error(`Error creating email alias:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.delete("/api/mail-servers/:serverId/aliases/:id", isAuthenticated, async (req, res) => {
+    try {
+      const serverId = parseInt(req.params.serverId);
+      const aliasId = parseInt(req.params.id);
+      const user = req.user as any;
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if the user owns this server
+      if (server.userId !== user.id) {
+        return res.status(403).json({ message: "You don't have permission to modify this server" });
+      }
+      
+      // Delete email alias from Mail-in-a-Box server
+      await mailInABoxService.deleteEmailAlias(serverId, aliasId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error(`Error deleting email alias:`, error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

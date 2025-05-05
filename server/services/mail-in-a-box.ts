@@ -3,12 +3,12 @@ import { storage } from '../storage';
 import { DnsRecord, Mailbox, EmailAlias } from '@shared/schema';
 
 interface MailServerCredentials {
-  apiUrl: string;
+  apiEndpoint: string;
   apiKey: string;
 }
 
 // Generic API request function for Mail-in-a-Box
-async function makeRequest(
+export async function makeRequest(
   credentials: MailServerCredentials,
   endpoint: string,
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
