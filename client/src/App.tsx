@@ -20,6 +20,7 @@ import Checkout from "./pages/checkout";
 import Subscribe from "./pages/subscribe";
 import ResellerDashboard from "./pages/reseller-dashboard";
 import EmailSettings from "./pages/email-settings";
+import EmailTemplates from "./pages/email-templates";
 
 function Router() {
   return (
@@ -39,6 +40,7 @@ function Router() {
       <ProtectedRoute path="/reseller" component={ResellerDashboard} />
       <ProtectedRoute path="/reseller/dashboard" component={ResellerDashboard} />
       <ProtectedRoute path="/email-settings" component={EmailSettings} />
+      <ProtectedRoute path="/email-templates" component={EmailTemplates} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route component={NotFound} />

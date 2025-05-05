@@ -1146,6 +1146,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  app.post("/api/email-templates/:id/test", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const { id } = req.params;
+      
+      // Get template
+      const template = await storage.getEmailTemplateById(parseInt(id), userId);
+      
+      if (!template) {
+        return res.status(404).json({ message: "Email template not found" });
+      }
+      
+      // Get user email to send test to
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.email) {
+        return res.status(400).json({ message: "User email not found" });
+      }
+      
+      // Check if email service is enabled
+      if (!isEmailServiceEnabled()) {
+        return res.status(400).json({ message: "Email service is not configured" });
+      }
+      
+      // Prepare sample data for variables
+      const sampleData = {
+        name: user.name || "Sample User",
+        username: user.username,
+        email: user.email,
+        site_name: "Mail-in-a-Box",
+        company: "Your Company",
+        domain: "example.com",
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString(),
+      };
+      
+      // Replace variables in template
+      let htmlContent = template.bodyHtml;
+      let textContent = template.bodyText || "";
+      let subject = template.subject;
+      
+      // Simple variable replacement (in a real app, use a proper templating engine)
+      Object.entries(sampleData).forEach(([key, value]) => {
+        const regex = new RegExp(`{{\\s*${key}\\s*}}`, "g");
+        htmlContent = htmlContent.replace(regex, value);
+        textContent = textContent.replace(regex, value);
+        subject = subject.replace(regex, value);
+      });
+      
+      // Send test email
+      const result = await sendEmail({
+        to: user.email,
+        subject: `[TEST] ${subject}`,
+        html: htmlContent,
+        text: textContent || undefined
+      });
+      
+      if (result) {
+        // Log activity
+        await storage.insertActivityLog({
+          userId,
+          action: "email_template.test",
+          details: { id, name: template.name },
+          ipAddress: req.ip || null
+        });
+        
+        res.json({ success: true });
+      } else {
+        res.status(500).json({ message: "Failed to send test email" });
+      }
+    } catch (error) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.delete("/api/email-templates/:id", isAuthenticated, async (req, res) => {
     try {
       const userId = (req.user as any).id;

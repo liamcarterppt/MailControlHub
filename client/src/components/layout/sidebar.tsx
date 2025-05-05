@@ -14,7 +14,8 @@ import {
   Share2,
   LogOut,
   User,
-  Mail
+  Mail,
+  FileText
 } from "lucide-react";
 import { useMobile } from "@/hooks/use-mobile";
 import { apiRequest } from "@/lib/queryClient";
@@ -172,6 +173,12 @@ export function Sidebar({ user, isOpen, onClose }: SidebarProps) {
             icon={<Mail size={18} />} 
             label="Email Settings" 
             active={location === "/email-settings"} 
+          />
+          <NavItem 
+            href="/email-templates" 
+            icon={<FileText size={18} />} 
+            label="Email Templates" 
+            active={location === "/email-templates"} 
           />
         </ul>
       </nav>
