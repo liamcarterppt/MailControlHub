@@ -5,10 +5,11 @@ import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { formatCurrency } from "@/lib/utils";
 import { BadgePercent, AlertCircle, CheckCircle2 } from "lucide-react";
+import { CommissionTiersData, CommissionTier } from "@/lib/types";
 
 export function CommissionTiers() {
   // Fetch commission tiers data
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery<CommissionTiersData>({
     queryKey: ["/api/referrals/commission-tiers"],
   });
 
@@ -43,7 +44,7 @@ export function CommissionTiers() {
   }
 
   // Get the next tier if available
-  const currentTierIndex = data.tiers.findIndex(tier => tier.id === data.currentTier.id);
+  const currentTierIndex = data.tiers.findIndex((tier: CommissionTier) => tier.id === data.currentTier.id);
   const nextTier = currentTierIndex < data.tiers.length - 1 ? data.tiers[currentTierIndex + 1] : null;
   
   // Calculate progress to next tier
@@ -104,7 +105,7 @@ export function CommissionTiers() {
         
         {/* Tier cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {data.tiers.map((tier) => (
+          {data.tiers.map((tier: CommissionTier) => (
             <Card 
               key={tier.id} 
               className={`border ${tier.id === data.currentTier.id ? 'border-primary' : 'border-border'}`}

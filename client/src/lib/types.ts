@@ -200,3 +200,10 @@ export interface CommissionTiersData {
   currentTier: CommissionTier;
   completedReferrals: number;
 }
+
+export interface UserWithReferralCode {
+  id: number;
+  username: string;
+  email: string;
+  referralCode: string;
+}

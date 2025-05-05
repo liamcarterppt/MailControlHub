@@ -11,6 +11,7 @@ import { formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useToast } from "@/hooks/use-toast";
 import { CommissionTiers } from "./commission-tiers";
+import { Referral, ReferralStats, UserWithReferralCode } from "@/lib/types";
 import {
   UsersRound,
   UserPlus,
@@ -27,17 +28,17 @@ export function ReferralDashboard() {
   const { toast } = useToast();
   
   // Fetch referrals
-  const { data: referrals, isLoading: referralsLoading } = useQuery({
+  const { data: referrals, isLoading: referralsLoading } = useQuery<Referral[]>({
     queryKey: ["/api/referrals"],
   });
 
   // Fetch referral stats
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery<ReferralStats>({
     queryKey: ["/api/referrals/stats"],
   });
 
   // Fetch user data to get referral code
-  const { data: user, isLoading: userLoading } = useQuery({
+  const { data: user, isLoading: userLoading } = useQuery<UserWithReferralCode>({
     queryKey: ["/api/user"],
   });
 
@@ -87,22 +88,24 @@ export function ReferralDashboard() {
       header: "Status",
       cell: (row: any) => {
         const status = row.row.original.status;
-        let variant: "default" | "success" | "warning" | "destructive" = "default";
+        let badgeClass = "";
         
         switch (status) {
           case "completed":
-            variant = "success";
+            badgeClass = "bg-green-100 text-green-800";
             break;
           case "pending":
-            variant = "warning";
+            badgeClass = "bg-yellow-100 text-yellow-800";
             break;
           case "expired":
-            variant = "destructive";
+            badgeClass = "bg-red-100 text-red-800";
             break;
+          default:
+            badgeClass = "";
         }
 
         return (
-          <Badge variant={variant} className="capitalize">
+          <Badge variant="outline" className={`capitalize ${badgeClass}`}>
             {status}
           </Badge>
         );
