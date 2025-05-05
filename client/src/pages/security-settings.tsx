@@ -1,177 +1,104 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { AlertCircle, Check, Copy, Loader2, ShieldCheck, ShieldOff } from "lucide-react";
-import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { AlertCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { TwoFactorSetup } from "@/components/security/two-factor-setup";
+import { 
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+
+// Define the password change form schema
+const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+  confirmPassword: z.string().min(8, "Password must be at least 8 characters")
+}).refine(data => data.newPassword === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"]
+});
 
 export default function SecuritySettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [, copy] = useCopyToClipboard();
-  const [token, setToken] = useState("");
-  const [password, setPassword] = useState("");
-  const [activeCopy, setActiveCopy] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("2fa");
   
   // Query for 2FA status
   const { data: twoFactorStatus, isLoading: isLoadingStatus } = useQuery({
     queryKey: ["/api/2fa/status"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/2fa/status");
-      return await res.json();
+      if (!res.ok) throw new Error("Failed to fetch 2FA status");
+      return res.json();
     }
   });
   
-  // Setup mutation - initiates 2FA setup
-  const setupMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/2fa/setup");
-      return await res.json();
+  // Password change form
+  const passwordForm = useForm<z.infer<typeof passwordChangeSchema>>({
+    resolver: zodResolver(passwordChangeSchema),
+    defaultValues: {
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: ""
+    }
+  });
+  
+  // Password change mutation
+  const passwordChangeMutation = useMutation({
+    mutationFn: async (data: z.infer<typeof passwordChangeSchema>) => {
+      const res = await apiRequest("POST", "/api/change-password", {
+        currentPassword: data.currentPassword,
+        newPassword: data.newPassword
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || "Failed to change password");
+      }
+      
+      return res.json();
     },
     onSuccess: () => {
       toast({
-        title: "2FA Setup Started",
-        description: "Scan the QR code with your authenticator app.",
+        title: "Password Changed",
+        description: "Your password has been updated successfully.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/2fa/status"] });
+      passwordForm.reset();
     },
     onError: (error: Error) => {
       toast({
-        title: "Setup Failed",
+        title: "Failed to Change Password",
         description: error.message,
         variant: "destructive",
       });
     }
   });
   
-  // Verify mutation - validates the token and enables 2FA
-  const verifyMutation = useMutation({
-    mutationFn: async (token: string) => {
-      const res = await apiRequest("POST", "/api/2fa/verify", { token });
-      return await res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "2FA Enabled",
-        description: "Two-factor authentication has been enabled on your account.",
-      });
-      setToken("");
-      queryClient.invalidateQueries({ queryKey: ["/api/2fa/status"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Verification Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  });
+  const handlePasswordChange = (values: z.infer<typeof passwordChangeSchema>) => {
+    passwordChangeMutation.mutate(values);
+  };
   
-  // Disable mutation - disables 2FA for the account
-  const disableMutation = useMutation({
-    mutationFn: async (password: string) => {
-      const res = await apiRequest("POST", "/api/2fa/disable", { password });
-      return await res.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "2FA Disabled",
-        description: "Two-factor authentication has been disabled on your account.",
-      });
-      setPassword("");
-      queryClient.invalidateQueries({ queryKey: ["/api/2fa/status"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Disable Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  });
-  
-  // Regenerate backup codes mutation
-  const regenerateCodesMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/2fa/regenerate-backup-codes");
-      return await res.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Backup Codes Regenerated",
-        description: "Your new backup codes have been generated. Save them in a secure place.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/2fa/status"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Regeneration Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  });
-  
-  const handleCopyCode = async (code: string) => {
-    await copy(code);
-    setActiveCopy(code);
-    
-    setTimeout(() => {
-      setActiveCopy(null);
-    }, 2000);
-    
+  const handleSetupComplete = () => {
     toast({
-      title: "Copied",
-      description: "Backup code copied to clipboard",
+      title: "Setup Complete",
+      description: "Two-factor authentication is now enabled on your account.",
     });
-  };
-  
-  // Handle setup form submission
-  const handleSetup = () => {
-    setupMutation.mutate();
-  };
-  
-  // Handle verify form submission
-  const handleVerify = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter a verification code",
-        variant: "destructive",
-      });
-      return;
-    }
-    verifyMutation.mutate(token);
-  };
-  
-  // Handle disable form submission
-  const handleDisable = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!password.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Please enter your password",
-        variant: "destructive",
-      });
-      return;
-    }
-    disableMutation.mutate(password);
-  };
-  
-  const handleRegenerateCodes = () => {
-    if (confirm("Are you sure you want to regenerate your backup codes? This will invalidate your existing backup codes.")) {
-      regenerateCodesMutation.mutate();
-    }
   };
   
   if (isLoadingStatus) {
