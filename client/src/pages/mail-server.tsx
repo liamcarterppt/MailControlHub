@@ -129,6 +129,11 @@ export default function MailServerPage() {
   
   type SpamFilterFormData = z.infer<typeof spamFilterFormSchema>;
   
+  // Interface for API requests that include serverId
+  interface SpamFilterApiData extends SpamFilterFormData {
+    serverId: number;
+  }
+  
   // Form schema for adding a backup job
   const backupJobFormSchema = z.object({
     name: z.string().min(3, "Name must be at least 3 characters"),
@@ -142,6 +147,11 @@ export default function MailServerPage() {
   });
   
   type BackupJobFormData = z.infer<typeof backupJobFormSchema>;
+  
+  // Interface for API requests that include serverId
+  interface BackupJobApiData extends BackupJobFormData {
+    serverId: number;
+  }
 
   // Fetch server details
   const { 
