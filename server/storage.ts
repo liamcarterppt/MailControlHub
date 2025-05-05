@@ -1029,5 +1029,47 @@ export const storage = {
   async deleteSpamFilter(id: number): Promise<boolean> {
     const result = await db.delete(spamFilters).where(eq(spamFilters.id, id));
     return result.rowCount > 0;
+  },
+  
+  async replaceAllSpamFilters(serverId: number, filtersData: Omit<SpamFilter, "id" | "createdAt" | "updatedAt">[]): Promise<SpamFilter[]> {
+    // Start a transaction
+    return await db.transaction(async (tx) => {
+      // Delete all existing spam filters for this server
+      await tx.delete(spamFilters).where(eq(spamFilters.serverId, serverId));
+      
+      // Insert new filters
+      if (filtersData.length > 0) {
+        await tx.insert(spamFilters).values(filtersData);
+      }
+      
+      // Return the updated list
+      const updatedFilters = await tx.query.spamFilters.findMany({
+        where: eq(spamFilters.serverId, serverId),
+        orderBy: [spamFilters.name]
+      });
+      
+      return updatedFilters;
+    });
+  },
+  
+  async replaceAllBackupJobs(serverId: number, jobsData: Omit<BackupJob, "id" | "createdAt" | "updatedAt" | "lastRunAt" | "nextRunAt">[]): Promise<BackupJob[]> {
+    // Start a transaction
+    return await db.transaction(async (tx) => {
+      // Delete all existing backup jobs for this server
+      await tx.delete(backupJobs).where(eq(backupJobs.serverId, serverId));
+      
+      // Insert new backup jobs
+      if (jobsData.length > 0) {
+        await tx.insert(backupJobs).values(jobsData);
+      }
+      
+      // Return the updated list
+      const updatedJobs = await tx.query.backupJobs.findMany({
+        where: eq(backupJobs.serverId, serverId),
+        orderBy: [desc(backupJobs.createdAt)]
+      });
+      
+      return updatedJobs;
+    });
   }
 };
