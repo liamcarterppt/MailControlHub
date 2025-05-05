@@ -179,3 +179,24 @@ export interface Referral {
 export interface ReferralLinkProps {
   code: string;
 }
+
+export interface ReferralStats {
+  totalReferrals: number;
+  pendingReferrals: number;
+  completedReferrals: number;
+  totalEarnings: number;
+}
+
+export interface CommissionTier {
+  id: number;
+  name: string;
+  threshold: number;
+  commissionRate: number;
+  description: string;
+}
+
+export interface CommissionTiersData {
+  tiers: CommissionTier[];
+  currentTier: CommissionTier;
+  completedReferrals: number;
+}

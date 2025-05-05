@@ -776,6 +776,131 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
   
+  // Referral system routes
+  app.get("/api/referrals", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const referrals = await storage.getUserReferrals(userId);
+      
+      res.status(200).json(referrals);
+    } catch (error) {
+      console.error('Error fetching referrals:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  app.get("/api/referrals/stats", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const stats = await storage.getReferralStats(userId);
+      
+      res.status(200).json(stats);
+    } catch (error) {
+      console.error('Error fetching referral stats:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  // Generate a new referral code for the user
+  app.post("/api/referrals/generate-code", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Generate a new referral code
+      const referralCode = crypto.randomBytes(6).toString('hex');
+      
+      // Update user with new referral code
+      await db.update(users)
+        .set({ referralCode })
+        .where(eq(users.id, userId));
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "referral.code_generated",
+        details: { referralCode },
+        ipAddress: req.ip || null
+      });
+      
+      res.status(200).json({ referralCode });
+    } catch (error) {
+      console.error('Error generating referral code:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  // Get user's referral commission tiers
+  app.get("/api/referrals/commission-tiers", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // This would typically fetch user-specific commission tiers
+      // For now, return default tiers
+      const defaultTiers = [
+        {
+          id: 1,
+          name: "Bronze",
+          threshold: 0, // 0 referrals
+          commissionRate: 10, // 10% commission
+          description: "New referrer tier"
+        },
+        {
+          id: 2,
+          name: "Silver",
+          threshold: 5, // 5 referrals
+          commissionRate: 15, // 15% commission
+          description: "Intermediate referrer tier"
+        },
+        {
+          id: 3,
+          name: "Gold",
+          threshold: 20, // 20 referrals
+          commissionRate: 20, // 20% commission
+          description: "Advanced referrer tier"
+        },
+        {
+          id: 4,
+          name: "Platinum",
+          threshold: 50, // 50 referrals
+          commissionRate: 25, // 25% commission
+          description: "Premium referrer tier"
+        }
+      ];
+      
+      // Determine the user's current tier based on successful referrals
+      const { completedReferrals } = await storage.getReferralStats(userId);
+      
+      // Find the highest tier that the user qualifies for
+      let currentTier = defaultTiers[0]; // Default to the first tier
+      for (const tier of defaultTiers) {
+        if (completedReferrals >= tier.threshold) {
+          currentTier = tier;
+        } else {
+          break;
+        }
+      }
+      
+      res.status(200).json({
+        tiers: defaultTiers,
+        currentTier,
+        completedReferrals
+      });
+    } catch (error) {
+      console.error('Error fetching commission tiers:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
   // Mail Server routes
   app.get("/api/mail-servers", isAuthenticated, async (req, res) => {
     try {
