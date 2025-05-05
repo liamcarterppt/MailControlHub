@@ -75,19 +75,19 @@ export function ReferralDashboard() {
 
   const columns = [
     {
-      accessorKey: "referredUser.email",
+      id: "referredUser",
       header: "Referred User",
-      cell: (row: any) => (
+      cell: ({ row }: { row: { original: Referral } }) => (
         <div className="font-medium">
-          {row.row.original.referredUser?.email || "Pending"}
+          {row.original.referredUser?.email || "Pending"}
         </div>
       ),
     },
     {
-      accessorKey: "status",
+      id: "status",
       header: "Status",
-      cell: (row: any) => {
-        const status = row.row.original.status;
+      cell: ({ row }: { row: { original: Referral } }) => {
+        const status = row.original.status;
         let badgeClass = "";
         
         switch (status) {
@@ -112,19 +112,22 @@ export function ReferralDashboard() {
       },
     },
     {
-      accessorKey: "reward",
+      id: "reward",
       header: "Reward",
-      cell: (row: any) => row.row.original.reward ? formatCurrency(row.row.original.reward) : "Pending",
+      cell: ({ row }: { row: { original: Referral } }) => 
+        row.original.reward ? formatCurrency(row.original.reward) : "Pending",
     },
     {
-      accessorKey: "createdAt",
+      id: "createdAt",
       header: "Referred On",
-      cell: (row: any) => formatDate(row.row.original.createdAt),
+      cell: ({ row }: { row: { original: Referral } }) => 
+        formatDate(row.original.createdAt),
     },
     {
-      accessorKey: "completedAt",
+      id: "completedAt",
       header: "Completed",
-      cell: (row: any) => row.row.original.completedAt ? formatRelativeTime(row.row.original.completedAt) : "Pending",
+      cell: ({ row }: { row: { original: Referral } }) => 
+        row.original.completedAt ? formatRelativeTime(row.original.completedAt) : "Pending",
     },
   ];
 
@@ -198,14 +201,14 @@ export function ReferralDashboard() {
             <Calendar className="mr-2 h-4 w-4" />
             <span>Pending</span>
             <Badge variant="outline" className="ml-2">
-              {referrals.filter(r => r.status === 'pending').length || 0}
+              {referrals.filter((r: Referral) => r.status === 'pending').length || 0}
             </Badge>
           </TabsTrigger>
           <TabsTrigger value="completed" className="flex items-center">
             <RefreshCcw className="mr-2 h-4 w-4" />
             <span>Completed</span>
             <Badge variant="outline" className="ml-2">
-              {referrals.filter(r => r.status === 'completed').length || 0}
+              {referrals.filter((r: Referral) => r.status === 'completed').length || 0}
             </Badge>
           </TabsTrigger>
         </TabsList>
@@ -215,25 +218,25 @@ export function ReferralDashboard() {
             data={referrals}
             columns={columns}
             searchPlaceholder="Search referrals..."
-            searchKey="referredUser.email"
+            searchKey="status"
           />
         </TabsContent>
 
         <TabsContent value="pending" className="border rounded-md mt-2">
           <DataTable
-            data={referrals.filter(r => r.status === 'pending')}
+            data={referrals.filter((r: Referral) => r.status === 'pending')}
             columns={columns}
             searchPlaceholder="Search pending referrals..."
-            searchKey="referredUser.email"
+            searchKey="status"
           />
         </TabsContent>
 
         <TabsContent value="completed" className="border rounded-md mt-2">
           <DataTable
-            data={referrals.filter(r => r.status === 'completed')}
+            data={referrals.filter((r: Referral) => r.status === 'completed')}
             columns={columns}
             searchPlaceholder="Search completed referrals..."
-            searchKey="referredUser.email"
+            searchKey="status"
           />
         </TabsContent>
       </Tabs>
