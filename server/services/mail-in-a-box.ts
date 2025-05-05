@@ -206,12 +206,19 @@ class MailInABoxApiClient {
    */
   async addMailUser(
     email: string, 
-    password: string
+    password: string,
+    name?: string
   ): Promise<MailInABoxApiResponse<any>> {
-    return this.request<any>('POST', '/mail/users/add', {
+    const data: any = {
       email,
       password
-    });
+    };
+    
+    if (name) {
+      data.name = name;
+    }
+    
+    return this.request<any>('POST', '/mail/users/add', data);
   }
 
   /**
@@ -259,12 +266,15 @@ class MailInABoxApiClient {
    */
   async removeMailAlias(
     source: string, 
-    destination: string
+    destination?: string
   ): Promise<MailInABoxApiResponse<any>> {
-    return this.request<any>('POST', '/mail/aliases/remove', {
-      source,
-      destination
-    });
+    const data: any = { source };
+    
+    if (destination) {
+      data.destination = destination;
+    }
+    
+    return this.request<any>('POST', '/mail/aliases/remove', data);
   }
 
   /**

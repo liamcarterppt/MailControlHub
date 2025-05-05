@@ -15,6 +15,9 @@ import {
   insertEmailAccountSchema,
   insertServerConfigSchema,
   insertEmailTemplateSchema,
+  insertMailServerSchema,
+  insertBackupJobSchema,
+  insertSpamFilterSchema,
   users,
   domains,
   emailAccounts,
@@ -22,10 +25,17 @@ import {
   resellerCommissionTiers,
   invoices,
   emailTemplates,
-  User
+  mailServers,
+  dnsRecords,
+  mailboxes,
+  emailAliases,
+  backupJobs,
+  User,
+  MailServer
 } from "@shared/schema";
 import { eq, and, or, asc, desc, sql } from "drizzle-orm";
 import * as twoFactorService from "./services/two-factor";
+import * as mailInABoxService from "./services/mail-in-a-box";
 
 // Setup session store with postgres
 const PgSession = pgSession(session);
@@ -2275,6 +2285,787 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error verifying 2FA token:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // Mail-in-a-Box Server API endpoints
+  app.get("/api/mail-servers", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const servers = await storage.getMailServersByUserId(userId);
+      res.json(servers);
+    } catch (error) {
+      console.error("Error fetching mail servers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      
+      // Validate request body
+      const serverData = insertMailServerSchema.parse(req.body);
+      
+      // Create mail server
+      const server = await storage.insertMailServer({
+        ...serverData,
+        userId,
+        status: 'pending',
+        apiEndpoint: serverData.apiEndpoint || '/admin',
+        isActive: true
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "server.create",
+        details: { hostname: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.status(201).json(server);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ errors: error.errors });
+      }
+      console.error("Error creating mail server:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/mail-servers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      res.json(server);
+    } catch (error) {
+      console.error("Error fetching mail server:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.delete("/api/mail-servers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      // Delete server
+      await storage.deleteMailServer(serverId);
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "server.delete",
+        details: { hostname: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting mail server:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/test-connection", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      // Test connection using the Mail-in-a-Box service
+      const client = await mailInABoxService.createMailInABoxClient(serverId);
+      
+      if (!client) {
+        return res.status(500).json({ message: "Failed to create API client" });
+      }
+      
+      const isConnected = await client.testConnection();
+      
+      if (!isConnected) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Failed to connect to the server. Please check the hostname, API key, and ensure the server is reachable." 
+        });
+      }
+      
+      // Update server status
+      const version = await client.getVersion();
+      await storage.updateMailServerStatus(serverId, {
+        status: 'online',
+        version: version.data || 'unknown',
+        lastSyncedAt: new Date()
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "server.test_connection",
+        details: { 
+          hostname: server.hostname,
+          success: true,
+          version: version.data || 'unknown'
+        },
+        ipAddress: req.ip || ""
+      });
+      
+      res.json({ 
+        success: true, 
+        message: "Successfully connected to the server", 
+        version: version.data 
+      });
+    } catch (error) {
+      console.error("Error testing mail server connection:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/sync", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      // Perform a full sync using the Mail-in-a-Box service
+      const success = await mailInABoxService.syncAllServerData(serverId);
+      
+      if (!success) {
+        return res.status(500).json({ 
+          success: false, 
+          message: "Failed to sync server data" 
+        });
+      }
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "server.sync",
+        details: { hostname: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.json({ success: true, message: "Server data synced successfully" });
+    } catch (error) {
+      console.error("Error syncing mail server data:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // DNS Records API endpoints
+  app.get("/api/mail-servers/:id/dns-records", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      const records = await storage.getDnsRecordsByServerId(serverId);
+      res.json(records);
+    } catch (error) {
+      console.error("Error fetching DNS records:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Mailboxes API endpoints
+  app.get("/api/mail-servers/:id/mailboxes", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      const mailboxes = await storage.getMailboxesByServerId(serverId);
+      res.json(mailboxes);
+    } catch (error) {
+      console.error("Error fetching mailboxes:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/mailboxes", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      // Create mailbox both on the server and locally
+      const { email, password, name } = req.body;
+      
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
+      }
+      
+      const client = await mailInABoxService.createMailInABoxClient(serverId);
+      
+      if (!client) {
+        return res.status(500).json({ message: "Failed to create API client" });
+      }
+      
+      // Create mailbox on the Mail-in-a-Box server
+      const result = await client.addMailUser(email, password, name);
+      
+      if (!result.success) {
+        return res.status(400).json({ message: result.error || "Failed to create mailbox" });
+      }
+      
+      // Create local record
+      const mailbox = await storage.insertMailbox({
+        serverId,
+        email,
+        name: name || null,
+        password: '[REDACTED]',
+        status: 'active',
+        storageLimit: null,
+        lastLogin: null
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "mailbox.create",
+        details: { email, server: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.status(201).json(mailbox);
+    } catch (error) {
+      console.error("Error creating mailbox:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.delete("/api/mailboxes/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const mailboxId = parseInt(req.params.id);
+      
+      if (isNaN(mailboxId)) {
+        return res.status(400).json({ message: "Invalid mailbox ID" });
+      }
+      
+      const mailbox = await storage.getMailboxById(mailboxId);
+      
+      if (!mailbox) {
+        return res.status(404).json({ message: "Mailbox not found" });
+      }
+      
+      // Get server to check ownership
+      const server = await storage.getMailServerById(mailbox.serverId);
+      
+      if (!server || server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      // Delete mailbox from Mail-in-a-Box server
+      const client = await mailInABoxService.createMailInABoxClient(mailbox.serverId);
+      
+      if (!client) {
+        return res.status(500).json({ message: "Failed to create API client" });
+      }
+      
+      const result = await client.removeMailUser(mailbox.email);
+      
+      if (!result.success) {
+        // Log the error but continue with local deletion
+        console.error("Failed to delete mailbox from Mail-in-a-Box server:", result.error);
+      }
+      
+      // Delete local record
+      await storage.deleteMailbox(mailboxId);
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "mailbox.delete",
+        details: { email: mailbox.email, server: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting mailbox:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Email Aliases API endpoints
+  app.get("/api/mail-servers/:id/aliases", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      const aliases = await storage.getEmailAliasesByServerId(serverId);
+      res.json(aliases);
+    } catch (error) {
+      console.error("Error fetching email aliases:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/aliases", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      const { sourceEmail, destinationEmail, mailboxId } = req.body;
+      
+      if (!sourceEmail || !destinationEmail) {
+        return res.status(400).json({ message: "Source email and destination email are required" });
+      }
+      
+      const client = await mailInABoxService.createMailInABoxClient(serverId);
+      
+      if (!client) {
+        return res.status(500).json({ message: "Failed to create API client" });
+      }
+      
+      // Create alias on the Mail-in-a-Box server
+      const result = await client.addMailAlias(sourceEmail, destinationEmail);
+      
+      if (!result.success) {
+        return res.status(400).json({ message: result.error || "Failed to create email alias" });
+      }
+      
+      // Create local record
+      const alias = await storage.insertEmailAlias({
+        serverId,
+        mailboxId: mailboxId || null,
+        sourceEmail,
+        destinationEmail,
+        isActive: true,
+        expiresAt: null
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "alias.create",
+        details: { source: sourceEmail, destination: destinationEmail, server: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.status(201).json(alias);
+    } catch (error) {
+      console.error("Error creating email alias:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.delete("/api/aliases/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const aliasId = parseInt(req.params.id);
+      
+      if (isNaN(aliasId)) {
+        return res.status(400).json({ message: "Invalid alias ID" });
+      }
+      
+      const alias = await storage.getEmailAliasById(aliasId);
+      
+      if (!alias) {
+        return res.status(404).json({ message: "Email alias not found" });
+      }
+      
+      // Get server to check ownership
+      const server = await storage.getMailServerById(alias.serverId);
+      
+      if (!server || server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      // Delete alias from Mail-in-a-Box server
+      const client = await mailInABoxService.createMailInABoxClient(alias.serverId);
+      
+      if (!client) {
+        return res.status(500).json({ message: "Failed to create API client" });
+      }
+      
+      const result = await client.removeMailAlias(alias.sourceEmail);
+      
+      if (!result.success) {
+        // Log the error but continue with local deletion
+        console.error("Failed to delete email alias from Mail-in-a-Box server:", result.error);
+      }
+      
+      // Delete local record
+      await storage.deleteEmailAlias(aliasId);
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "alias.delete",
+        details: { source: alias.sourceEmail, server: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting email alias:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Backup Jobs API endpoints
+  app.get("/api/mail-servers/:id/backups", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      const backupJobs = await storage.getBackupJobsByServerId(serverId);
+      res.json(backupJobs);
+    } catch (error) {
+      console.error("Error fetching backup jobs:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/backups", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      // Validate backup job data
+      const jobData = insertBackupJobSchema.parse({
+        ...req.body,
+        serverId
+      });
+      
+      // Create backup job
+      const backupJob = await storage.insertBackupJob(jobData);
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "backup.create",
+        details: { name: backupJob.name, server: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.status(201).json(backupJob);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ errors: error.errors });
+      }
+      console.error("Error creating backup job:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/backups/:id/history", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const jobId = parseInt(req.params.id);
+      
+      if (isNaN(jobId)) {
+        return res.status(400).json({ message: "Invalid backup job ID" });
+      }
+      
+      const backupJob = await storage.getBackupJobById(jobId);
+      
+      if (!backupJob) {
+        return res.status(404).json({ message: "Backup job not found" });
+      }
+      
+      // Get server to check ownership
+      const server = await storage.getMailServerById(backupJob.serverId);
+      
+      if (!server || server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      const history = await storage.getBackupHistoryByJobId(jobId);
+      res.json(history);
+    } catch (error) {
+      console.error("Error fetching backup history:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Spam Filters API endpoints
+  app.get("/api/mail-servers/:id/spam-filters", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      const spamFilters = await storage.getSpamFiltersByServerId(serverId);
+      res.json(spamFilters);
+    } catch (error) {
+      console.error("Error fetching spam filters:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/mail-servers/:id/spam-filters", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      // Validate spam filter data
+      const filterData = insertSpamFilterSchema.parse({
+        ...req.body,
+        serverId
+      });
+      
+      // Create spam filter
+      const spamFilter = await storage.insertSpamFilter(filterData);
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "spam_filter.create",
+        details: { name: spamFilter.name, server: server.hostname },
+        ipAddress: req.ip || ""
+      });
+      
+      res.status(201).json(spamFilter);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ errors: error.errors });
+      }
+      console.error("Error creating spam filter:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Server metrics API endpoints
+  app.get("/api/mail-servers/:id/metrics", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const serverId = parseInt(req.params.id);
+      
+      if (isNaN(serverId)) {
+        return res.status(400).json({ message: "Invalid server ID" });
+      }
+      
+      const server = await storage.getMailServerById(serverId);
+      
+      if (!server) {
+        return res.status(404).json({ message: "Server not found" });
+      }
+      
+      // Check if user owns this server
+      if (server.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      
+      const metrics = await storage.getServerMetricsById(serverId);
+      
+      // Get fresh server status and queue data if needed
+      if (metrics.length === 0 || (new Date().getTime() - metrics[0].timestamp.getTime()) > 5 * 60 * 1000) {
+        // Only refresh metrics if last update was more than 5 minutes ago
+        const client = await mailInABoxService.createMailInABoxClient(serverId);
+        if (client) {
+          const statusResponse = await client.getStatus();
+          const queueResponse = await client.getMailQueue();
+          
+          if (statusResponse.success && queueResponse.success) {
+            const newMetrics = await storage.insertServerMetrics(serverId, {
+              cpuUsage: statusResponse.data.system.cpu || 0,
+              memoryUsage: statusResponse.data.system.memory.used || 0,
+              diskUsage: statusResponse.data.system.disk.used || 0,
+              queueSize: queueResponse.data?.length || 0
+            });
+            
+            metrics.unshift(newMetrics);
+          }
+        }
+      }
+      
+      res.json(metrics);
+    } catch (error) {
+      console.error("Error fetching server metrics:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });

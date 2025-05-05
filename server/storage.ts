@@ -529,6 +529,8 @@ export const storage = {
     totalDomains: number;
     verifiedDomains: number;
     totalStorageUsed: number;
+    mailServersCount?: number;
+    totalMailboxes?: number;
   }> {
     const emailAccountsQuery = await db
       .select({ count: count() })
@@ -552,12 +554,394 @@ export const storage = {
       .select({ total: sum(emailAccounts.storageUsed) })
       .from(emailAccounts)
       .where(eq(emailAccounts.userId, userId));
+      
+    // Add mail server counts for Mail-in-a-Box
+    const mailServersQuery = await db
+      .select({ count: count() })
+      .from(mailServers)
+      .where(eq(mailServers.userId, userId));
+      
+    // Get total mailboxes across all servers owned by the user
+    const mailboxesQuery = await db
+      .select({ count: count() })
+      .from(mailboxes)
+      .innerJoin(mailServers, eq(mailboxes.serverId, mailServers.id))
+      .where(eq(mailServers.userId, userId));
 
     return {
       totalEmailAccounts: emailAccountsQuery[0]?.count || 0,
       totalDomains: domainsQuery[0]?.count || 0,
       verifiedDomains: verifiedDomainsQuery[0]?.count || 0,
-      totalStorageUsed: storageQuery[0]?.total || 0
+      totalStorageUsed: storageQuery[0]?.total || 0,
+      mailServersCount: mailServersQuery[0]?.count || 0,
+      totalMailboxes: mailboxesQuery[0]?.count || 0
     };
+  },
+  
+  // Mail-in-a-Box Server operations
+  async getMailServersByUserId(userId: number): Promise<MailServer[]> {
+    return db.query.mailServers.findMany({
+      where: eq(mailServers.userId, userId),
+      orderBy: [desc(mailServers.createdAt)]
+    });
+  },
+  
+  async getMailServerById(id: number): Promise<MailServer | undefined> {
+    return db.query.mailServers.findFirst({
+      where: eq(mailServers.id, id),
+    });
+  },
+  
+  async insertMailServer(serverData: Omit<MailServer, "id" | "createdAt" | "updatedAt" | "lastSyncedAt" | "isActive">): Promise<MailServer> {
+    const [server] = await db.insert(mailServers)
+      .values({
+        ...serverData,
+        isActive: true,
+        status: 'unknown'
+      })
+      .returning();
+    return server;
+  },
+  
+  async updateMailServerStatus(id: number, statusData: { 
+    status: string; 
+    version?: string;
+    lastSyncedAt?: Date;
+  }): Promise<MailServer> {
+    const updateData: Record<string, any> = {
+      status: statusData.status,
+      updatedAt: new Date()
+    };
+    
+    if (statusData.version) {
+      updateData.version = statusData.version;
+    }
+    
+    if (statusData.lastSyncedAt) {
+      updateData.lastSyncedAt = statusData.lastSyncedAt;
+    }
+    
+    const [server] = await db
+      .update(mailServers)
+      .set(updateData)
+      .where(eq(mailServers.id, id))
+      .returning();
+    return server;
+  },
+  
+  async deleteMailServer(id: number): Promise<boolean> {
+    const result = await db.delete(mailServers).where(eq(mailServers.id, id));
+    return result.rowCount > 0;
+  },
+  
+  // DNS Records operations
+  async getDnsRecordsByServerId(serverId: number): Promise<DnsRecord[]> {
+    return db.query.dnsRecords.findMany({
+      where: eq(dnsRecords.serverId, serverId),
+      orderBy: [dnsRecords.name, dnsRecords.recordType]
+    });
+  },
+  
+  async insertDnsRecord(recordData: Omit<DnsRecord, "id" | "createdAt" | "updatedAt">): Promise<DnsRecord> {
+    const [record] = await db.insert(dnsRecords).values(recordData).returning();
+    return record;
+  },
+  
+  async deleteDnsRecord(id: number): Promise<boolean> {
+    const result = await db.delete(dnsRecords).where(eq(dnsRecords.id, id));
+    return result.rowCount > 0;
+  },
+  
+  async replaceAllDnsRecords(serverId: number, records: Omit<DnsRecord, "id" | "createdAt" | "updatedAt">[]): Promise<DnsRecord[]> {
+    // First delete all existing DNS records for this server
+    await db.delete(dnsRecords).where(eq(dnsRecords.serverId, serverId));
+    
+    // Then insert the new records
+    if (records.length === 0) {
+      return [];
+    }
+    
+    const insertedRecords = await db.insert(dnsRecords).values(records).returning();
+    return insertedRecords;
+  },
+  
+  // Mailbox operations
+  async getMailboxesByServerId(serverId: number): Promise<Mailbox[]> {
+    return db.query.mailboxes.findMany({
+      where: eq(mailboxes.serverId, serverId),
+      orderBy: [mailboxes.email]
+    });
+  },
+  
+  async getMailboxById(id: number): Promise<Mailbox | undefined> {
+    return db.query.mailboxes.findFirst({
+      where: eq(mailboxes.id, id)
+    });
+  },
+  
+  async insertMailbox(mailboxData: Omit<Mailbox, "id" | "createdAt" | "updatedAt" | "storageUsed" | "lastLogin">): Promise<Mailbox> {
+    const [mailbox] = await db.insert(mailboxes).values({
+      ...mailboxData,
+      storageUsed: 0,
+      status: 'active'
+    }).returning();
+    return mailbox;
+  },
+  
+  async updateMailboxStatus(id: number, status: string): Promise<Mailbox> {
+    const [mailbox] = await db
+      .update(mailboxes)
+      .set({ 
+        status,
+        updatedAt: new Date() 
+      })
+      .where(eq(mailboxes.id, id))
+      .returning();
+    return mailbox;
+  },
+  
+  async updateMailboxStorageUsed(id: number, storageUsed: number): Promise<Mailbox> {
+    const [mailbox] = await db
+      .update(mailboxes)
+      .set({ 
+        storageUsed,
+        updatedAt: new Date() 
+      })
+      .where(eq(mailboxes.id, id))
+      .returning();
+    return mailbox;
+  },
+  
+  async deleteMailbox(id: number): Promise<boolean> {
+    const result = await db.delete(mailboxes).where(eq(mailboxes.id, id));
+    return result.rowCount > 0;
+  },
+  
+  async replaceAllMailboxes(serverId: number, mailboxesData: Omit<Mailbox, "id" | "createdAt" | "updatedAt">[]): Promise<Mailbox[]> {
+    // First delete all existing mailboxes for this server
+    await db.delete(mailboxes).where(eq(mailboxes.serverId, serverId));
+    
+    // Then insert the new mailboxes
+    if (mailboxesData.length === 0) {
+      return [];
+    }
+    
+    const insertedMailboxes = await db.insert(mailboxes).values(mailboxesData).returning();
+    return insertedMailboxes;
+  },
+  
+  // Email Aliases operations
+  async getEmailAliasesByServerId(serverId: number): Promise<EmailAlias[]> {
+    return db.query.emailAliases.findMany({
+      where: eq(emailAliases.serverId, serverId),
+      orderBy: [emailAliases.sourceEmail]
+    });
+  },
+  
+  async getEmailAliasesByMailboxId(mailboxId: number): Promise<EmailAlias[]> {
+    return db.query.emailAliases.findMany({
+      where: eq(emailAliases.mailboxId, mailboxId),
+      orderBy: [emailAliases.sourceEmail]
+    });
+  },
+  
+  async insertEmailAlias(aliasData: Omit<EmailAlias, "id" | "createdAt" | "updatedAt">): Promise<EmailAlias> {
+    const [alias] = await db.insert(emailAliases).values({
+      ...aliasData,
+      isActive: true
+    }).returning();
+    return alias;
+  },
+  
+  async updateEmailAliasStatus(id: number, isActive: boolean): Promise<EmailAlias> {
+    const [alias] = await db
+      .update(emailAliases)
+      .set({ 
+        isActive,
+        updatedAt: new Date() 
+      })
+      .where(eq(emailAliases.id, id))
+      .returning();
+    return alias;
+  },
+  
+  async deleteEmailAlias(id: number): Promise<boolean> {
+    const result = await db.delete(emailAliases).where(eq(emailAliases.id, id));
+    return result.rowCount > 0;
+  },
+  
+  async replaceAllEmailAliases(serverId: number, aliasesData: Omit<EmailAlias, "id" | "createdAt" | "updatedAt">[]): Promise<EmailAlias[]> {
+    // First delete all existing aliases for this server
+    await db.delete(emailAliases).where(eq(emailAliases.serverId, serverId));
+    
+    // Then insert the new aliases
+    if (aliasesData.length === 0) {
+      return [];
+    }
+    
+    const insertedAliases = await db.insert(emailAliases).values(aliasesData).returning();
+    return insertedAliases;
+  },
+  
+  // Backup Jobs operations
+  async getBackupJobsByServerId(serverId: number): Promise<BackupJob[]> {
+    return db.query.backupJobs.findMany({
+      where: eq(backupJobs.serverId, serverId),
+      orderBy: [desc(backupJobs.createdAt)]
+    });
+  },
+  
+  async getBackupJobById(id: number): Promise<BackupJob | undefined> {
+    return db.query.backupJobs.findFirst({
+      where: eq(backupJobs.id, id)
+    });
+  },
+  
+  async insertBackupJob(jobData: Omit<BackupJob, "id" | "createdAt" | "updatedAt" | "lastRunAt" | "nextRunAt">): Promise<BackupJob> {
+    const [job] = await db.insert(backupJobs).values({
+      ...jobData,
+      status: 'pending'
+    }).returning();
+    return job;
+  },
+  
+  async updateBackupJobStatus(id: number, status: string, lastRunAt?: Date, nextRunAt?: Date): Promise<BackupJob> {
+    const updateData: Record<string, any> = {
+      status,
+      updatedAt: new Date()
+    };
+    
+    if (lastRunAt) {
+      updateData.lastRunAt = lastRunAt;
+    }
+    
+    if (nextRunAt) {
+      updateData.nextRunAt = nextRunAt;
+    }
+    
+    const [job] = await db
+      .update(backupJobs)
+      .set(updateData)
+      .where(eq(backupJobs.id, id))
+      .returning();
+    return job;
+  },
+  
+  async deleteBackupJob(id: number): Promise<boolean> {
+    const result = await db.delete(backupJobs).where(eq(backupJobs.id, id));
+    return result.rowCount > 0;
+  },
+  
+  // Backup History operations
+  async getBackupHistoryByJobId(jobId: number, limit = 10): Promise<BackupHistoryEntry[]> {
+    return db.query.backupHistory.findMany({
+      where: eq(backupHistory.jobId, jobId),
+      orderBy: [desc(backupHistory.startedAt)],
+      limit
+    });
+  },
+  
+  async insertBackupHistoryEntry(entryData: Omit<BackupHistoryEntry, "id">): Promise<BackupHistoryEntry> {
+    const [entry] = await db.insert(backupHistory).values(entryData).returning();
+    return entry;
+  },
+  
+  async updateBackupHistoryCompletion(id: number, status: string, completedAt: Date, sizeBytes?: number, error?: string): Promise<BackupHistoryEntry> {
+    const updateData: Record<string, any> = {
+      status,
+      completedAt
+    };
+    
+    if (sizeBytes !== undefined) {
+      updateData.sizeBytes = sizeBytes;
+    }
+    
+    if (error !== undefined) {
+      updateData.error = error;
+    }
+    
+    const [entry] = await db
+      .update(backupHistory)
+      .set(updateData)
+      .where(eq(backupHistory.id, id))
+      .returning();
+    return entry;
+  },
+  
+  // Server Metrics operations
+  async getServerMetricsById(serverId: number, limit = 24): Promise<ServerMetricsEntry[]> {
+    return db.query.serverMetrics.findMany({
+      where: eq(serverMetrics.serverId, serverId),
+      orderBy: [desc(serverMetrics.timestamp)],
+      limit
+    });
+  },
+  
+  async insertServerMetrics(serverId: number, metricsData: Omit<ServerMetricsEntry, "id" | "serverId" | "timestamp">): Promise<ServerMetricsEntry> {
+    const [metrics] = await db.insert(serverMetrics).values({
+      serverId,
+      ...metricsData,
+      timestamp: new Date()
+    }).returning();
+    return metrics;
+  },
+  
+  async updateServerMetricsQueueSize(serverId: number, queueSize: number): Promise<boolean> {
+    // Get the most recent metrics entry
+    const latestMetrics = await db.query.serverMetrics.findFirst({
+      where: eq(serverMetrics.serverId, serverId),
+      orderBy: [desc(serverMetrics.timestamp)]
+    });
+    
+    if (!latestMetrics) {
+      return false;
+    }
+    
+    // Update the queue size
+    await db
+      .update(serverMetrics)
+      .set({ queueSize })
+      .where(eq(serverMetrics.id, latestMetrics.id));
+      
+    return true;
+  },
+  
+  // Spam Filters operations
+  async getSpamFiltersByServerId(serverId: number): Promise<SpamFilter[]> {
+    return db.query.spamFilters.findMany({
+      where: eq(spamFilters.serverId, serverId),
+      orderBy: [spamFilters.name]
+    });
+  },
+  
+  async getSpamFilterById(id: number): Promise<SpamFilter | undefined> {
+    return db.query.spamFilters.findFirst({
+      where: eq(spamFilters.id, id)
+    });
+  },
+  
+  async insertSpamFilter(filterData: Omit<SpamFilter, "id" | "createdAt" | "updatedAt">): Promise<SpamFilter> {
+    const [filter] = await db.insert(spamFilters).values({
+      ...filterData,
+      isActive: true
+    }).returning();
+    return filter;
+  },
+  
+  async updateSpamFilterStatus(id: number, isActive: boolean): Promise<SpamFilter> {
+    const [filter] = await db
+      .update(spamFilters)
+      .set({ 
+        isActive,
+        updatedAt: new Date() 
+      })
+      .where(eq(spamFilters.id, id))
+      .returning();
+    return filter;
+  },
+  
+  async deleteSpamFilter(id: number): Promise<boolean> {
+    const result = await db.delete(spamFilters).where(eq(spamFilters.id, id));
+    return result.rowCount > 0;
   }
 };
