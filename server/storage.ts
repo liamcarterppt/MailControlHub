@@ -48,6 +48,8 @@ export const storage = {
     const [user] = await db.insert(users).values(userData).returning();
     return user;
   },
+  
+  // Two-Factor Authentication operations
 
   async updateStripeCustomerId(userId: number, customerId: string): Promise<User> {
     const [user] = await db
@@ -73,19 +75,29 @@ export const storage = {
   // Two-factor authentication operations
   async updateTwoFactorStatus(
     userId: number,
-    { enabled, secret, backupCodes }: { 
+    options: { 
       enabled: boolean; 
       secret?: string | null;
       backupCodes?: string[] | null;
     }
   ): Promise<User> {
+    const updateData: Record<string, any> = {
+      twoFactorEnabled: options.enabled
+    };
+    
+    if (options.secret !== undefined) {
+      updateData.twoFactorSecret = options.secret;
+    }
+    
+    if (options.backupCodes !== undefined) {
+      updateData.backupCodes = Array.isArray(options.backupCodes) 
+        ? JSON.stringify(options.backupCodes) 
+        : options.backupCodes;
+    }
+    
     const [updatedUser] = await db
       .update(users)
-      .set({
-        twoFactorEnabled: enabled,
-        twoFactorSecret: secret || null,
-        backupCodes: backupCodes ? JSON.stringify(backupCodes) : null
-      })
+      .set(updateData)
       .where(eq(users.id, userId))
       .returning();
     
@@ -110,17 +122,45 @@ export const storage = {
   
   async useBackupCode(
     userId: number,
-    remainingCodes: string[]
-  ): Promise<User> {
-    const [updatedUser] = await db
-      .update(users)
-      .set({
-        backupCodes: JSON.stringify(remainingCodes)
-      })
-      .where(eq(users.id, userId))
-      .returning();
+    usedCode: string
+  ): Promise<{ success: boolean; remainingCodes: string[] }> {
+    // Get current backup codes
+    const user = await this.getUserById(userId);
     
-    return updatedUser;
+    if (!user || !user.backupCodes) {
+      return { success: false, remainingCodes: [] };
+    }
+    
+    // Parse backup codes if they're stored as JSON string
+    let backupCodes: string[] = [];
+    try {
+      backupCodes = typeof user.backupCodes === 'string'
+        ? JSON.parse(user.backupCodes)
+        : (Array.isArray(user.backupCodes) ? user.backupCodes : []);
+    } catch (error) {
+      console.error('Error parsing backup codes:', error);
+      return { success: false, remainingCodes: [] };
+    }
+    
+    const codeIndex = backupCodes.indexOf(usedCode);
+    
+    if (codeIndex === -1) {
+      return { success: false, remainingCodes: backupCodes };
+    }
+    
+    // Remove the used code
+    const remainingCodes = [
+      ...backupCodes.slice(0, codeIndex),
+      ...backupCodes.slice(codeIndex + 1)
+    ];
+    
+    // Update user with remaining codes
+    await db
+      .update(users)
+      .set({ backupCodes: JSON.stringify(remainingCodes) })
+      .where(eq(users.id, userId));
+      
+    return { success: true, remainingCodes };
   },
 
   // Domain operations
