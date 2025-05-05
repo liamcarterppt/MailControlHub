@@ -288,6 +288,10 @@ export default function ResellerDashboard() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="customers">Customers</TabsTrigger>
           <TabsTrigger value="commissions">Commissions</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="branding">Branding</TabsTrigger>
+          <TabsTrigger value="templates">Email Templates</TabsTrigger>
+          <TabsTrigger value="payouts">Payouts</TabsTrigger>
           <TabsTrigger value="resources">Resources</TabsTrigger>
         </TabsList>
 
@@ -468,11 +472,176 @@ export default function ResellerDashboard() {
               <CardDescription>Track your earning performance</CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-muted-foreground">Commission analytics will be displayed here.</p>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setActiveTab("analytics");
+                }}
+              >
+                View Detailed Analytics Dashboard
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* Analytics Tab */}
+        <TabsContent value="analytics" className="space-y-6">
+          {/* Import and use the analytics component here */}
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Analytics Dashboard</CardTitle>
+                <CardDescription>Detailed reseller business metrics and performance analysis</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="py-6">
+                  <p className="text-center text-muted-foreground">Loading analytics dashboard...</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Branding Tab */}
+        <TabsContent value="branding" className="space-y-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-xl font-bold">White Labeling</h2>
+              <p className="text-sm text-muted-foreground">Configure your custom branding and client portal</p>
+            </div>
+          </div>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Client Portal URL</CardTitle>
+              <CardDescription>Share this URL with your customers to access your branded portal</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex">
+                <Input 
+                  value={`${window.location.origin}/client-portal?reseller=${userData?.id || "unknown"}`}
+                  readOnly
+                  className="flex-1 rounded-r-none"
+                />
+                <Button 
+                  variant="secondary"
+                  className="rounded-l-none"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/client-portal?reseller=${userData?.id || "unknown"}`);
+                    toast({
+                      title: "URL Copied",
+                      description: "Portal URL has been copied to clipboard",
+                    });
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" /> Copy
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">This is a temporary URL. Configure your white label settings for a custom domain.</p>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>White Label Configuration</CardTitle>
+              <CardDescription>Customize the branding for your customer portal</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" onClick={() => setIsSettingsDialogOpen(true)}>
+                <Settings className="h-4 w-4 mr-2" />
+                Configure White Label Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Email Templates Tab */}
+        <TabsContent value="templates" className="space-y-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-xl font-bold">Email Templates</h2>
+              <p className="text-sm text-muted-foreground">Create branded email templates for your customers</p>
+            </div>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              New Template
+            </Button>
+          </div>
+          
+          <Card>
+            <CardContent className="p-0">
+              <div className="p-6 text-center">
+                <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Email Templates Yet</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Create branded email templates that you and your customers can use for communications.
+                </p>
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Your First Template
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Payouts Tab */}
+        <TabsContent value="payouts" className="space-y-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-xl font-bold">Commission Payouts</h2>
+              <p className="text-sm text-muted-foreground">Track and manage your commission earnings</p>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex flex-col">
+                  <span className="text-sm text-muted-foreground">Pending Commission</span>
+                  <span className="text-2xl font-bold">{formatCurrency(0)}</span>
+                  <span className="text-xs text-muted-foreground mt-1">
+                    Minimum payout: {formatCurrency(100)}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="md:col-span-2">
+              <CardContent className="p-4">
+                <div className="flex justify-between items-center h-full">
+                  <div className="text-sm">
+                    <p className="font-medium">Next Payout</p>
+                    <p className="text-muted-foreground">
+                      You need {formatCurrency(100)} more to reach minimum payout threshold
+                    </p>
+                  </div>
+                  <Button disabled={true} className="ml-4">
+                    <DollarSign className="h-4 w-4 mr-2" />
+                    Request Payout
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Payout History</CardTitle>
+              <CardDescription>Record of your commission payments</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-6">
+                <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">No Payout History</h3>
+                <p className="text-sm text-muted-foreground">
+                  Your commission payment history will appear here once you start earning commissions.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
         {/* Resources Tab */}
         <TabsContent value="resources" className="space-y-6">
           <Card>
