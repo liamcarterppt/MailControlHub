@@ -21,6 +21,8 @@ import Subscribe from "./pages/subscribe";
 import ResellerDashboard from "./pages/reseller-dashboard";
 import EmailSettings from "./pages/email-settings";
 import EmailTemplates from "./pages/email-templates";
+import MailServers from "./pages/mail-servers";
+import MailServer from "./pages/mail-server";
 
 function Router() {
   return (
@@ -41,6 +43,8 @@ function Router() {
       <ProtectedRoute path="/reseller/dashboard" component={ResellerDashboard} />
       <ProtectedRoute path="/email-settings" component={EmailSettings} />
       <ProtectedRoute path="/email-templates" component={EmailTemplates} />
+      <ProtectedRoute path="/mail-servers" component={MailServers} />
+      <ProtectedRoute path="/mail-server/:id" component={MailServer} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route component={NotFound} />
