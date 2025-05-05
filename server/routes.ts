@@ -6,7 +6,7 @@ import session from "express-session";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import pgSession from "connect-pg-simple";
-import { pool } from "@db";
+import { pool, db } from "@db";
 import Stripe from "stripe";
 import { z } from "zod";
 import {
@@ -14,8 +14,13 @@ import {
   insertDomainSchema,
   insertEmailAccountSchema,
   insertServerConfigSchema,
-  users
+  users,
+  domains,
+  emailAccounts,
+  resellerSettings,
+  resellerCommissionTiers
 } from "@shared/schema";
+import { eq, and, or, asc, desc, sql } from "drizzle-orm";
 
 // Setup session store with postgres
 const PgSession = pgSession(session);
@@ -172,9 +177,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.get("/api/me", isAuthenticated, (req, res) => {
-    const { password, ...userWithoutPassword } = req.user as any;
-    res.json(userWithoutPassword);
+  app.get("/api/me", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      const { password, ...userWithoutPassword } = user;
+      
+      // If user is a reseller, include reseller settings
+      let resellerData = null;
+      if (user.isReseller) {
+        const settings = await db.query.resellerSettings.findFirst({
+          where: eq(resellerSettings.userId, user.id)
+        });
+        
+        // Get commission tiers
+        const tiers = await db.select()
+          .from(resellerCommissionTiers)
+          .where(eq(resellerCommissionTiers.userId, user.id))
+          .orderBy(asc(resellerCommissionTiers.minimumRevenue));
+          
+        // Get customer count
+        const customerCount = await db.select({ count: sql`count(*)` })
+          .from(users)
+          .where(eq(users.resellerId, user.id));
+          
+        resellerData = {
+          settings,
+          tiers,
+          customerCount: customerCount[0].count || 0
+        };
+      }
+      
+      res.json({
+        ...userWithoutPassword,
+        resellerData
+      });
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   // Dashboard routes

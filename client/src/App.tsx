@@ -16,6 +16,7 @@ import Login from "@/pages/login";
 import Register from "./pages/register";
 import Checkout from "./pages/checkout";
 import Subscribe from "./pages/subscribe";
+import ResellerDashboard from "./pages/reseller-dashboard";
 
 function Router() {
   return (
@@ -34,6 +35,8 @@ function Router() {
       <Route path="/register" component={Register} />
       <Route path="/checkout" component={Checkout} />
       <Route path="/subscribe/:priceId" component={Subscribe} />
+      <Route path="/reseller" component={ResellerDashboard} />
+      <Route path="/reseller/dashboard" component={ResellerDashboard} />
       <Route component={NotFound} />
     </Switch>
   );
