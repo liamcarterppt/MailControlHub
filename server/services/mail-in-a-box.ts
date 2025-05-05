@@ -1,6 +1,15 @@
 import fetch from 'node-fetch';
 import { storage } from '../storage';
-import { DnsRecord, Mailbox, EmailAlias, MailServer } from '@shared/schema';
+import { 
+  DnsRecord, 
+  Mailbox, 
+  EmailAlias, 
+  MailServer, 
+  SpamFilter, 
+  BackupJob, 
+  BackupHistoryEntry,
+  ServerMetricsEntry 
+} from '@shared/schema';
 
 interface MailServerCredentials {
   apiEndpoint: string;
@@ -385,6 +394,429 @@ export async function deleteEmailAlias(serverId: number, aliasId: number) {
     return { success: true };
   } catch (error) {
     console.error(`Failed to delete email alias ${aliasId} on server ${serverId}:`, error);
+    throw error;
+  }
+}
+
+// Security Function: Get spam filter settings
+export async function getSpamFilters(serverId: number) {
+  const server = await storage.getMailServerById(serverId);
+  
+  if (!server) {
+    throw new Error('Server not found');
+  }
+  
+  const credentials = {
+    apiEndpoint: server.apiEndpoint,
+    apiKey: server.apiKey,
+  };
+  
+  try {
+    const response = await makeRequest(credentials, '/mail/filter');
+    const spamSettings = response as Record<string, any>;
+    
+    // Process the response to match our schema
+    const filters: Omit<SpamFilter, 'id' | 'createdAt' | 'updatedAt'>[] = [];
+    
+    // Process the Mail-in-a-Box spam filter settings
+    // Convert the standard settings to our format
+    if (spamSettings.spam_threshold) {
+      filters.push({
+        serverId,
+        name: 'Spam Score Threshold',
+        ruleType: 'threshold',
+        pattern: spamSettings.spam_threshold.toString(),
+        action: 'mark',
+        isActive: true,
+        description: 'Global spam score threshold',
+        score: parseFloat(spamSettings.spam_threshold)
+      });
+    }
+    
+    // Add whitelist and blacklist entries
+    const whitelistAddresses = spamSettings.whitelist_addresses || [];
+    for (const address of whitelistAddresses) {
+      filters.push({
+        serverId,
+        name: `Whitelist: ${address}`,
+        ruleType: 'whitelist',
+        pattern: address,
+        action: 'allow',
+        isActive: true,
+        description: 'Whitelisted address',
+        score: null
+      });
+    }
+    
+    const blacklistAddresses = spamSettings.blacklist_addresses || [];
+    for (const address of blacklistAddresses) {
+      filters.push({
+        serverId,
+        name: `Blacklist: ${address}`,
+        ruleType: 'blacklist',
+        pattern: address,
+        action: 'block',
+        isActive: true,
+        description: 'Blacklisted address',
+        score: null
+      });
+    }
+    
+    // Replace all spam filters in our database
+    await storage.replaceAllSpamFilters(serverId, filters);
+    
+    return await storage.getSpamFiltersByServerId(serverId);
+  } catch (error) {
+    console.error(`Failed to get spam filters for server ${serverId}:`, error);
+    throw error;
+  }
+}
+
+// Create or update a spam filter rule
+export async function createSpamFilter(serverId: number, data: Omit<SpamFilter, 'id' | 'serverId' | 'createdAt' | 'updatedAt'>) {
+  const server = await storage.getMailServerById(serverId);
+  
+  if (!server) {
+    throw new Error('Server not found');
+  }
+  
+  const credentials = {
+    apiEndpoint: server.apiEndpoint,
+    apiKey: server.apiKey,
+  };
+  
+  try {
+    // Depending on the rule type, call the appropriate Mail-in-a-Box API
+    if (data.ruleType === 'whitelist') {
+      await makeRequest(credentials, '/mail/filter/whitelist/add', 'POST', {
+        address: data.pattern
+      });
+    } else if (data.ruleType === 'blacklist') {
+      await makeRequest(credentials, '/mail/filter/blacklist/add', 'POST', {
+        address: data.pattern
+      });
+    } else if (data.ruleType === 'threshold') {
+      await makeRequest(credentials, '/mail/filter/set_spam_threshold', 'POST', {
+        threshold: data.score
+      });
+    }
+    
+    // Add the filter to our database
+    const filter = await storage.insertSpamFilter({
+      serverId,
+      name: data.name,
+      ruleType: data.ruleType,
+      pattern: data.pattern,
+      action: data.action,
+      isActive: data.isActive,
+      description: data.description || null,
+      score: data.score
+    });
+    
+    return filter;
+  } catch (error) {
+    console.error(`Failed to create spam filter on server ${serverId}:`, error);
+    throw error;
+  }
+}
+
+// Delete a spam filter rule
+export async function deleteSpamFilter(serverId: number, filterId: number) {
+  const server = await storage.getMailServerById(serverId);
+  if (!server) {
+    throw new Error('Server not found');
+  }
+  
+  const filter = await storage.getSpamFilterById(filterId);
+  if (!filter || filter.serverId !== serverId) {
+    throw new Error('Spam filter not found');
+  }
+  
+  const credentials = {
+    apiEndpoint: server.apiEndpoint,
+    apiKey: server.apiKey,
+  };
+  
+  try {
+    // Depending on the rule type, call the appropriate Mail-in-a-Box API
+    if (filter.ruleType === 'whitelist') {
+      await makeRequest(credentials, '/mail/filter/whitelist/remove', 'POST', {
+        address: filter.pattern
+      });
+    } else if (filter.ruleType === 'blacklist') {
+      await makeRequest(credentials, '/mail/filter/blacklist/remove', 'POST', {
+        address: filter.pattern
+      });
+    }
+    
+    // Remove the filter from our database
+    await storage.deleteSpamFilter(filterId);
+    
+    return { success: true };
+  } catch (error) {
+    console.error(`Failed to delete spam filter ${filterId} on server ${serverId}:`, error);
+    throw error;
+  }
+}
+
+// Backup Management: Get backup settings
+export async function getBackupJobs(serverId: number) {
+  const server = await storage.getMailServerById(serverId);
+  
+  if (!server) {
+    throw new Error('Server not found');
+  }
+  
+  const credentials = {
+    apiEndpoint: server.apiEndpoint,
+    apiKey: server.apiKey,
+  };
+  
+  try {
+    const response = await makeRequest(credentials, '/system/backup/status');
+    const backupStatus = response as Record<string, any>;
+    
+    // Process the response to match our schema
+    const backups: Omit<BackupJob, 'id' | 'createdAt' | 'updatedAt' | 'lastRunAt' | 'nextRunAt'>[] = [];
+    
+    // Extract backup settings from Mail-in-a-Box
+    const backupConfig = backupStatus.config || {};
+    
+    // Add each configured backup
+    if (backupConfig.target) {
+      // Main system backup
+      backups.push({
+        serverId,
+        name: 'System Backup',
+        backupType: 'system',
+        destination: backupConfig.target,
+        schedule: backupConfig.schedule || 'daily',
+        status: backupStatus.backups_enabled ? 'active' : 'disabled',
+        retentionDays: backupConfig.retention_days || 7,
+        encryptionKey: backupConfig.encryption_key || null
+      });
+    }
+    
+    // Add mail backup if configured separately
+    if (backupConfig.email_target) {
+      backups.push({
+        serverId,
+        name: 'Mail Backup',
+        backupType: 'mail',
+        destination: backupConfig.email_target,
+        schedule: backupConfig.email_schedule || 'daily',
+        status: backupStatus.email_backups_enabled ? 'active' : 'disabled',
+        retentionDays: backupConfig.email_retention_days || 7,
+        encryptionKey: backupConfig.email_encryption_key || null
+      });
+    }
+    
+    // Replace all backup jobs in our database
+    await storage.replaceAllBackupJobs(serverId, backups);
+    
+    return await storage.getBackupJobsByServerId(serverId);
+  } catch (error) {
+    console.error(`Failed to get backup jobs for server ${serverId}:`, error);
+    throw error;
+  }
+}
+
+// Create a new backup job
+export async function createBackupJob(serverId: number, data: {
+  name: string;
+  backupType: string;
+  destination: string;
+  schedule: string;
+  retentionDays?: number;
+  encryptionKey?: string | null;
+}) {
+  const server = await storage.getMailServerById(serverId);
+  
+  if (!server) {
+    throw new Error('Server not found');
+  }
+  
+  const credentials = {
+    apiEndpoint: server.apiEndpoint,
+    apiKey: server.apiKey,
+  };
+  
+  try {
+    // Configure backup based on type
+    const backupConfig: Record<string, any> = {
+      target: data.backupType === 'system' ? data.destination : undefined,
+      email_target: data.backupType === 'mail' ? data.destination : undefined,
+      schedule: data.backupType === 'system' ? data.schedule : undefined,
+      email_schedule: data.backupType === 'mail' ? data.schedule : undefined,
+      retention_days: data.backupType === 'system' ? data.retentionDays : undefined,
+      email_retention_days: data.backupType === 'mail' ? data.retentionDays : undefined,
+      encryption_key: data.backupType === 'system' ? data.encryptionKey : undefined,
+      email_encryption_key: data.backupType === 'mail' ? data.encryptionKey : undefined
+    };
+    
+    // Update backup configuration
+    await makeRequest(credentials, '/system/backup/config', 'POST', backupConfig);
+    
+    // Enable the backup
+    await makeRequest(credentials, '/system/backup/toggle', 'POST', {
+      target_type: data.backupType,
+      enabled: true
+    });
+    
+    // Add the backup job to our database
+    const job = await storage.insertBackupJob({
+      serverId,
+      name: data.name,
+      backupType: data.backupType,
+      destination: data.destination,
+      schedule: data.schedule,
+      status: 'active',
+      retentionDays: data.retentionDays || 7,
+      encryptionKey: data.encryptionKey || null
+    });
+    
+    return job;
+  } catch (error) {
+    console.error(`Failed to create backup job on server ${serverId}:`, error);
+    throw error;
+  }
+}
+
+// Manually run a backup job
+export async function runBackupJob(serverId: number, jobId: number) {
+  const server = await storage.getMailServerById(serverId);
+  if (!server) {
+    throw new Error('Server not found');
+  }
+  
+  const job = await storage.getBackupJobById(jobId);
+  if (!job || job.serverId !== serverId) {
+    throw new Error('Backup job not found');
+  }
+  
+  const credentials = {
+    apiEndpoint: server.apiEndpoint,
+    apiKey: server.apiKey,
+  };
+  
+  try {
+    // Run the backup immediately
+    await makeRequest(credentials, '/system/backup/now', 'POST', {
+      target_type: job.backupType
+    });
+    
+    // Record the backup run in history
+    const historyEntry = await storage.insertBackupHistoryEntry({
+      jobId,
+      startedAt: new Date(),
+      status: 'running',
+      sizeBytes: null,
+      error: null,
+      completedAt: null
+    });
+    
+    // Update the backup job status
+    await storage.updateBackupJobStatus(jobId, 'running', new Date());
+    
+    return { success: true, historyEntry };
+  } catch (error) {
+    console.error(`Failed to run backup job ${jobId} on server ${serverId}:`, error);
+    
+    // Record the failed attempt
+    await storage.insertBackupHistoryEntry({
+      jobId,
+      startedAt: new Date(),
+      status: 'failed',
+      sizeBytes: null,
+      error: error instanceof Error ? error.message : String(error),
+      completedAt: new Date()
+    });
+    
+    throw error;
+  }
+}
+
+// Get server metrics
+export async function getServerMetrics(serverId: number) {
+  const server = await storage.getMailServerById(serverId);
+  
+  if (!server) {
+    throw new Error('Server not found');
+  }
+  
+  const credentials = {
+    apiEndpoint: server.apiEndpoint,
+    apiKey: server.apiKey,
+  };
+  
+  try {
+    // Get system status information
+    const systemStatus = await makeRequest(credentials, '/system/status') as Record<string, any>;
+    
+    // Get memory usage information
+    const memoryInfo = await makeRequest(credentials, '/system/memory') as Record<string, any>;
+    
+    // Get disk usage information
+    const diskInfo = await makeRequest(credentials, '/system/disk') as Record<string, any>;
+    
+    // Get mail queue size
+    const mailQueue = await makeRequest(credentials, '/mail/queue') as Record<string, any>;
+    
+    // Process metrics
+    const cpuUsage = systemStatus.system_load !== undefined ? parseFloat(systemStatus.system_load) : null;
+    const memoryUsage = memoryInfo.memory_used !== undefined ? parseFloat(memoryInfo.memory_used) : null;
+    const diskUsage = diskInfo.disk_used !== undefined ? parseFloat(diskInfo.disk_used) : null;
+    const queueSize = mailQueue.queue_size !== undefined ? parseInt(mailQueue.queue_size) : null;
+    
+    // Store metrics in our database
+    const metrics = await storage.insertServerMetrics(serverId, {
+      cpuUsage,
+      memoryUsage,
+      diskUsage,
+      queueSize,
+      activeConnections: null,
+      metrics: {
+        system: systemStatus,
+        memory: memoryInfo,
+        disk: diskInfo,
+        mail: mailQueue
+      }
+    });
+    
+    return metrics;
+  } catch (error) {
+    console.error(`Failed to get server metrics for server ${serverId}:`, error);
+    throw error;
+  }
+}
+
+// Sync all server data
+export async function syncAllServerData(serverId: number) {
+  try {
+    // Get server info
+    await getServerInfo(serverId);
+    
+    // Get DNS records
+    await getDnsRecords(serverId);
+    
+    // Get mailboxes
+    await getMailboxes(serverId);
+    
+    // Get email aliases
+    await getEmailAliases(serverId);
+    
+    // Get spam filters
+    await getSpamFilters(serverId);
+    
+    // Get backup jobs
+    await getBackupJobs(serverId);
+    
+    // Get server metrics
+    await getServerMetrics(serverId);
+    
+    return { success: true };
+  } catch (error) {
+    console.error(`Failed to sync all data for server ${serverId}:`, error);
     throw error;
   }
 }
