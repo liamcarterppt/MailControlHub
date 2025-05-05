@@ -416,7 +416,7 @@ export default function ResellerDashboard() {
                 <div className="flex flex-col items-center justify-center py-8">
                   <p className="text-sm text-muted-foreground mb-4">No customers found.</p>
                   <Button onClick={() => setIsNewCustomerDialogOpen(true)}>
-                    <PlusIcon className="h-4 w-4 mr-2" />
+                    <Plus className="h-4 w-4 mr-2" />
                     Add Your First Customer
                   </Button>
                 </div>
@@ -433,7 +433,7 @@ export default function ResellerDashboard() {
               <p className="text-sm text-muted-foreground">Manage your commission structure based on revenue tiers</p>
             </div>
             <Button onClick={() => setIsNewTierDialogOpen(true)}>
-              <PlusIcon className="h-4 w-4 mr-2" />
+              <Plus className="h-4 w-4 mr-2" />
               Add Tier
             </Button>
           </div>
@@ -469,7 +469,7 @@ export default function ResellerDashboard() {
                 <div className="flex flex-col items-center justify-center py-8">
                   <p className="text-sm text-muted-foreground mb-4">No commission tiers found.</p>
                   <Button onClick={() => setIsNewTierDialogOpen(true)}>
-                    <PlusIcon className="h-4 w-4 mr-2" />
+                    <Plus className="h-4 w-4 mr-2" />
                     Create Your First Tier
                   </Button>
                 </div>
