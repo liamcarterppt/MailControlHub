@@ -13,7 +13,8 @@ import {
   CreditCard,
   Share2,
   LogOut,
-  User
+  User,
+  Mail
 } from "lucide-react";
 import { useMobile } from "@/hooks/use-mobile";
 import { apiRequest } from "@/lib/queryClient";
@@ -30,18 +31,17 @@ type NavItemProps = {
 function NavItem({ href, icon, label, active }: NavItemProps) {
   return (
     <li>
-      <Link href={href}>
-        <a 
-          className={cn(
-            "flex items-center px-4 py-3 hover:bg-slate-800 hover:text-slate-100",
-            active 
-              ? "text-slate-100 bg-slate-800" 
-              : "text-slate-300"
-          )}
-        >
-          <span className="w-5">{icon}</span>
-          <span className="ml-3">{label}</span>
-        </a>
+      <Link 
+        href={href}
+        className={cn(
+          "flex items-center px-4 py-3 hover:bg-slate-800 hover:text-slate-100",
+          active 
+            ? "text-slate-100 bg-slate-800" 
+            : "text-slate-300"
+        )}
+      >
+        <span className="w-5">{icon}</span>
+        <span className="ml-3">{label}</span>
       </Link>
     </li>
   );
@@ -167,6 +167,12 @@ export function Sidebar({ user, isOpen, onClose }: SidebarProps) {
             label="Referrals" 
             active={location === "/referrals"} 
           />
+          <NavItem 
+            href="/email-settings" 
+            icon={<Mail size={18} />} 
+            label="Email Settings" 
+            active={location === "/email-settings"} 
+          />
         </ul>
       </nav>
       
@@ -183,16 +189,16 @@ export function Sidebar({ user, isOpen, onClose }: SidebarProps) {
           </div>
         </div>
         <div className="mt-4 flex space-x-2">
-          <Button 
-            variant="secondary" 
-            size="sm"
-            className="flex-1 py-2 text-xs text-center bg-slate-800 hover:bg-slate-700"
-          >
-            <Link href="/settings">
+          <Link href="/settings">
+            <Button 
+              variant="secondary" 
+              size="sm"
+              className="flex-1 py-2 text-xs text-center bg-slate-800 hover:bg-slate-700"
+            >
               <User className="mr-2 h-4 w-4" />
               <span>Settings</span>
-            </Link>
-          </Button>
+            </Button>
+          </Link>
           <Button 
             variant="secondary"
             size="sm"

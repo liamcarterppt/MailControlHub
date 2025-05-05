@@ -38,6 +38,7 @@ function Router() {
       <ProtectedRoute path="/subscribe/:priceId" component={Subscribe} />
       <ProtectedRoute path="/reseller" component={ResellerDashboard} />
       <ProtectedRoute path="/reseller/dashboard" component={ResellerDashboard} />
+      <ProtectedRoute path="/email-settings" component={EmailSettings} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
       <Route component={NotFound} />
