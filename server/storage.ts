@@ -562,11 +562,15 @@ export const storage = {
       .where(eq(mailServers.userId, userId));
       
     // Get total mailboxes across all servers owned by the user
-    const mailboxesQuery = await db
-      .select({ count: count() })
-      .from(mailboxes)
-      .innerJoin(mailServers, eq(mailboxes.serverId, mailServers.id))
-      .where(eq(mailServers.userId, userId));
+    // Using raw SQL here to avoid relation issues
+    const mailboxesQuery = await db.execute<{ count: string }>(sql`
+      SELECT COUNT(*) as count
+      FROM mailboxes mb
+      INNER JOIN mail_servers ms ON mb.server_id = ms.id
+      WHERE ms.user_id = ${userId}
+    `).then(result => {
+      return result.rows;
+    });
 
     return {
       totalEmailAccounts: emailAccountsQuery[0]?.count || 0,
@@ -574,7 +578,7 @@ export const storage = {
       verifiedDomains: verifiedDomainsQuery[0]?.count || 0,
       totalStorageUsed: storageQuery[0]?.total || 0,
       mailServersCount: mailServersQuery[0]?.count || 0,
-      totalMailboxes: mailboxesQuery[0]?.count || 0
+      totalMailboxes: Number(mailboxesQuery[0]?.count || 0)
     };
   },
   
