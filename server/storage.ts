@@ -12,6 +12,14 @@ import {
   referrals,
   invoices,
   emailTemplates,
+  mailServers,
+  dnsRecords,
+  mailboxes,
+  emailAliases,
+  backupJobs,
+  backupHistory,
+  serverMetrics,
+  spamFilters,
   User,
   Domain,
   EmailAccount,
@@ -22,7 +30,15 @@ import {
   EmailTemplate,
   Referral,
   MailQueueItem,
-  Invoice
+  Invoice,
+  MailServer,
+  DnsRecord,
+  Mailbox,
+  EmailAlias,
+  BackupJob,
+  BackupHistoryEntry,
+  ServerMetricsEntry,
+  SpamFilter
 } from "@shared/schema";
 import { randomBytes } from "crypto";
 
