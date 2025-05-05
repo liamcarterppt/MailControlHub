@@ -383,9 +383,11 @@ export const storage = {
       const usersResult = await db.select().from(users)
         .where(inArray(users.id, userIdsArray));
       
-      users.forEach(user => {
-        relatedUsers[user.id] = user;
-      });
+      if (Array.isArray(usersResult)) {
+        usersResult.forEach((user: User) => {
+          relatedUsers[user.id] = user;
+        });
+      }
     }
     
     // Attach users to logs manually
@@ -435,9 +437,11 @@ export const storage = {
       const referredUsers = await db.select().from(users)
         .where(inArray(users.id, referredUserIdsArray));
       
-      referredUsers.forEach(user => {
-        relatedUsers[user.id] = user;
-      });
+      if (Array.isArray(referredUsers)) {
+        referredUsers.forEach((user: User) => {
+          relatedUsers[user.id] = user;
+        });
+      }
     }
     
     // Attach referred users to referrals manually
