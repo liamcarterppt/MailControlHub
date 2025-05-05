@@ -70,6 +70,59 @@ export const storage = {
     return user;
   },
 
+  // Two-factor authentication operations
+  async updateTwoFactorStatus(
+    userId: number,
+    { enabled, secret, backupCodes }: { 
+      enabled: boolean; 
+      secret?: string | null;
+      backupCodes?: string[] | null;
+    }
+  ): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        twoFactorEnabled: enabled,
+        twoFactorSecret: secret || null,
+        backupCodes: backupCodes ? JSON.stringify(backupCodes) : null
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    
+    return updatedUser;
+  },
+  
+  async updateLoginInfo(
+    userId: number,
+    ipAddress: string
+  ): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        lastLoginAt: new Date(),
+        lastLoginIp: ipAddress
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    
+    return updatedUser;
+  },
+  
+  async useBackupCode(
+    userId: number,
+    remainingCodes: string[]
+  ): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({
+        backupCodes: JSON.stringify(remainingCodes)
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    
+    return updatedUser;
+  },
+
   // Domain operations
   async getDomainsByUserId(userId: number): Promise<Domain[]> {
     return db.query.domains.findMany({

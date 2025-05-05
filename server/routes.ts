@@ -46,6 +46,15 @@ import {
   loadEmailConfiguration
 } from './email-service';
 
+// Import 2FA services
+import {
+  generateSecret,
+  generateBackupCodes,
+  verifyToken,
+  generateQRCode,
+  verifyBackupCode
+} from './services/two-factor';
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Load email configuration at startup
   await loadEmailConfiguration();
