@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Loader, ChevronRight, Plus, DollarSign, PieChart, Users, Settings } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
@@ -127,7 +127,7 @@ export default function ResellerDashboard() {
   });
 
   // Load settings data into form when available
-  React.useEffect(() => {
+  useEffect(() => {
     if (userData?.resellerData?.settings) {
       const settings = userData.resellerData.settings;
       settingsForm.reset({
@@ -235,7 +235,7 @@ export default function ResellerDashboard() {
     return (
       <MainLayout pageTitle="Reseller Dashboard">
         <div className="flex items-center justify-center h-[50vh]">
-          <ReloadIcon className="h-8 w-8 animate-spin text-primary" />
+          <Loader className="h-8 w-8 animate-spin text-primary" />
         </div>
       </MainLayout>
     );
@@ -278,7 +278,7 @@ export default function ResellerDashboard() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">{userData?.resellerData?.settings?.companyName || "Reseller Dashboard"}</h1>
         <Button variant="outline" onClick={() => setIsSettingsDialogOpen(true)}>
-          <SettingsIcon className="h-4 w-4 mr-2" />
+          <Settings className="h-4 w-4 mr-2" />
           Settings
         </Button>
       </div>
@@ -359,7 +359,7 @@ export default function ResellerDashboard() {
             <CardContent className="p-0">
               {isCustomersLoading ? (
                 <div className="flex items-center justify-center py-8">
-                  <ReloadIcon className="h-8 w-8 animate-spin text-primary" />
+                  <Loader className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : customers && customers.length > 0 ? (
                 <Table>
