@@ -1,14 +1,13 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useLocation } from "wouter";
-import { apiRequest } from "../lib/queryClient";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "../components/ui/form";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { toast } from "../hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/hooks/use-auth";
 import { Loader2 } from "lucide-react";
 
 const formSchema = z.object({
@@ -32,8 +31,15 @@ const formSchema = z.object({
 });
 
 export default function Register() {
-  const [isLoading, setIsLoading] = useState(false);
   const [, navigate] = useLocation();
+  const { user, registerMutation } = useAuth();
+  
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate("/dashboard");
+    }
+  }, [user, navigate]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -47,43 +53,20 @@ export default function Register() {
     },
   });
 
-  async function onSubmit(values: z.infer<typeof formSchema>) {
-    setIsLoading(true);
-    try {
-      // Remove confirmPassword before sending
-      const { confirmPassword, ...registerData } = values;
-      
-      // Only include referralCode if it has a value
-      const dataToSend = registerData.referralCode 
-        ? registerData 
-        : { name: registerData.name, username: registerData.username, email: registerData.email, password: registerData.password };
-      
-      const response = await apiRequest("POST", "/api/register", dataToSend);
-      const data = await response.json();
-      
-      if (response.ok) {
-        toast({
-          title: "Registration successful!",
-          description: "You can now log in with your credentials.",
-        });
+  function onSubmit(values: z.infer<typeof formSchema>) {
+    // Remove confirmPassword before sending
+    const { confirmPassword, ...registerData } = values;
+    
+    // Only include referralCode if it has a value
+    const dataToSend = registerData.referralCode 
+      ? registerData 
+      : { name: registerData.name, username: registerData.username, email: registerData.email, password: registerData.password };
+    
+    registerMutation.mutate(dataToSend, {
+      onSuccess: () => {
         navigate("/login");
-      } else {
-        toast({
-          title: "Registration failed",
-          description: data.message || "Please check your information and try again.",
-          variant: "destructive",
-        });
       }
-    } catch (error) {
-      console.error("Registration error:", error);
-      toast({
-        title: "Something went wrong",
-        description: "Please try again later.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    });
   }
 
   return (
@@ -105,7 +88,7 @@ export default function Register() {
                   <FormItem>
                     <FormLabel>Full Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="John Doe" {...field} disabled={isLoading} />
+                      <Input placeholder="John Doe" {...field} disabled={registerMutation.isPending} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -118,7 +101,7 @@ export default function Register() {
                   <FormItem>
                     <FormLabel>Username</FormLabel>
                     <FormControl>
-                      <Input placeholder="johndoe" {...field} disabled={isLoading} />
+                      <Input placeholder="johndoe" {...field} disabled={registerMutation.isPending} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -131,7 +114,7 @@ export default function Register() {
                   <FormItem>
                     <FormLabel>Email</FormLabel>
                     <FormControl>
-                      <Input type="email" placeholder="john.doe@example.com" {...field} disabled={isLoading} />
+                      <Input type="email" placeholder="john.doe@example.com" {...field} disabled={registerMutation.isPending} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -144,7 +127,7 @@ export default function Register() {
                   <FormItem>
                     <FormLabel>Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="********" {...field} disabled={isLoading} />
+                      <Input type="password" placeholder="********" {...field} disabled={registerMutation.isPending} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -157,7 +140,7 @@ export default function Register() {
                   <FormItem>
                     <FormLabel>Confirm Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="********" {...field} disabled={isLoading} />
+                      <Input type="password" placeholder="********" {...field} disabled={registerMutation.isPending} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -170,14 +153,14 @@ export default function Register() {
                   <FormItem>
                     <FormLabel>Referral Code (Optional)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Enter referral code" {...field} disabled={isLoading} />
+                      <Input placeholder="Enter referral code" {...field} disabled={registerMutation.isPending} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? (
+              <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
+                {registerMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Creating account...
@@ -192,16 +175,12 @@ export default function Register() {
         <CardFooter className="flex justify-center">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Already have an account?{" "}
-            <a
+            <Link 
               href="/login"
               className="font-medium text-primary hover:underline"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate("/login");
-              }}
             >
               Log in
-            </a>
+            </Link>
           </p>
         </CardFooter>
       </Card>
