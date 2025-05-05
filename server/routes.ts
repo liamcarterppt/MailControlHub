@@ -1058,8 +1058,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Stripe subscription routes
+  // Stripe payment routes
   if (stripe) {
+    // For one-time payments
+    app.post("/api/create-payment-intent", isAuthenticated, async (req, res) => {
+      try {
+        const { amount } = req.body;
+        
+        if (!amount || isNaN(amount)) {
+          return res.status(400).json({ message: "Valid amount is required" });
+        }
+        
+        // Create a payment intent
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: Math.round(amount * 100), // Convert to cents
+          currency: "usd",
+          metadata: {
+            userId: (req.user as any).id,
+          },
+        });
+        
+        // Log activity
+        await storage.insertActivityLog({
+          userId: (req.user as any).id,
+          action: "payment.created",
+          details: { amount, paymentIntentId: paymentIntent.id },
+          ipAddress: req.ip
+        });
+        
+        res.json({
+          clientSecret: paymentIntent.client_secret,
+        });
+      } catch (error) {
+        console.error("Error creating payment intent:", error);
+        res.status(500).json({ message: "Error creating payment intent" });
+      }
+    });
+    
+    // For subscriptions
     app.post("/api/create-subscription", isAuthenticated, async (req, res) => {
       try {
         const userId = (req.user as any).id;
@@ -1073,19 +1109,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!priceId) {
           return res.status(400).json({ message: "Price ID is required" });
         }
-
-        let customerId = user.stripeCustomerId;
         
-        // If user doesn't have a Stripe customer ID, create one
-        if (!customerId) {
-          const customer = await stripe.customers.create({
+        // Get plan details for UI
+        const price = await stripe.prices.retrieve(priceId);
+        const product = await stripe.products.retrieve(price.product as string);
+        
+        // Create or get Stripe customer
+        let customer;
+        if (user.stripeCustomerId) {
+          customer = await stripe.customers.retrieve(user.stripeCustomerId);
+        } else {
+          customer = await stripe.customers.create({
             email: user.email,
-            name: user.name,
+            name: user.username,
+            metadata: {
+              userId: user.id.toString(),
+            },
           });
           
-          customerId = customer.id;
-          await storage.updateStripeCustomerId(userId, customerId);
+          // Save customer ID to user record
+          await storage.updateStripeCustomerId(user.id, customer.id);
         }
+
+        // Get the customer ID from the user record or from the customer object we just created
+        const customerId = user.stripeCustomerId || customer.id;
 
         // Create subscription
         const subscription = await stripe.subscriptions.create({
@@ -1109,9 +1156,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ipAddress: req.ip
         });
 
+        // Handle response when we have a valid subscription with a payment intent
+        let clientSecret = '';
+        if (subscription && 
+            subscription.latest_invoice && 
+            typeof subscription.latest_invoice === 'object' &&
+            'payment_intent' in subscription.latest_invoice &&
+            subscription.latest_invoice.payment_intent) {
+          clientSecret = (subscription.latest_invoice.payment_intent as any).client_secret;
+        }
+        
         res.json({
           subscriptionId: subscription.id,
-          clientSecret: (subscription.latest_invoice as any).payment_intent.client_secret,
+          clientSecret: clientSecret,
+          planDetails: {
+            name: product.name,
+            price: price.unit_amount ? price.unit_amount / 100 : 0,
+            interval: price.recurring?.interval || 'month'
+          }
         });
       } catch (error) {
         console.error("Error creating subscription:", error);
