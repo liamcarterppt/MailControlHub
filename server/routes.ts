@@ -21,9 +21,11 @@ import {
   resellerSettings,
   resellerCommissionTiers,
   invoices,
-  emailTemplates
+  emailTemplates,
+  User
 } from "@shared/schema";
 import { eq, and, or, asc, desc, sql } from "drizzle-orm";
+import * as twoFactorService from "./services/two-factor";
 
 // Setup session store with postgres
 const PgSession = pgSession(session);
@@ -46,14 +48,16 @@ import {
   loadEmailConfiguration
 } from './email-service';
 
-// Import 2FA services
-import {
-  generateSecret,
-  generateBackupCodes,
-  verifyToken,
-  generateQRCode,
-  verifyBackupCode
-} from './services/two-factor';
+// Declare type for session with two-factor setup
+declare module 'express-session' {
+  interface SessionData {
+    twoFactorSetup?: {
+      secret: string;
+      backupCodes: string[];
+      initiated: number;
+    };
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Load email configuration at startup
