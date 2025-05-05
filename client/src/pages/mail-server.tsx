@@ -524,6 +524,16 @@ export default function MailServerPage() {
   function onAliasSubmit(data: AliasFormData) {
     addAliasMutation.mutate(data);
   }
+  
+  // Handle spam filter form submission
+  function onSpamFilterSubmit(data: SpamFilterFormData) {
+    addSpamFilterMutation.mutate(data);
+  }
+  
+  // Handle backup job form submission
+  function onBackupJobSubmit(data: BackupJobFormData) {
+    addBackupJobMutation.mutate(data);
+  }
 
   // Function to get status badge color
   function getStatusBadge(status: string) {
@@ -1127,35 +1137,701 @@ export default function MailServerPage() {
         </TabsContent>
 
         <TabsContent value="security" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Security Settings</CardTitle>
-              <CardDescription>
-                Manage security settings for your Mail-in-a-Box server
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-center py-8 text-muted-foreground">
-                Security management interface is being built. Check back later.
-              </p>
-            </CardContent>
-          </Card>
+          <div className="mb-6 flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl font-bold">Spam Filters</h2>
+              <p className="text-muted-foreground">Configure spam protection rules for your mail server</p>
+            </div>
+            
+            <Dialog open={addSpamFilterOpen} onOpenChange={setAddSpamFilterOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Spam Filter
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[550px]">
+                <DialogHeader>
+                  <DialogTitle>Add New Spam Filter</DialogTitle>
+                  <DialogDescription>
+                    Create a filter rule to protect your server from spam
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <Form {...spamFilterForm}>
+                  <form onSubmit={spamFilterForm.handleSubmit(onSpamFilterSubmit)} className="space-y-4">
+                    <FormField
+                      control={spamFilterForm.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Block Known Spammers" {...field} />
+                          </FormControl>
+                          <FormDescription>
+                            A descriptive name for this filter
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={spamFilterForm.control}
+                        name="ruleType"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Rule Type</FormLabel>
+                            <FormControl>
+                              <select 
+                                className="w-full border border-input bg-background px-3 py-2 rounded-md"
+                                {...field}
+                              >
+                                <option value="header">Email Header</option>
+                                <option value="body">Email Body</option>
+                                <option value="attachment">Attachment</option>
+                                <option value="sender">Sender Address</option>
+                                <option value="recipient">Recipient Address</option>
+                              </select>
+                            </FormControl>
+                            <FormDescription>
+                              What part of the email to filter
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={spamFilterForm.control}
+                        name="action"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Action</FormLabel>
+                            <FormControl>
+                              <select 
+                                className="w-full border border-input bg-background px-3 py-2 rounded-md"
+                                {...field}
+                              >
+                                <option value="block">Block</option>
+                                <option value="quarantine">Quarantine</option>
+                                <option value="tag">Tag</option>
+                                <option value="score">Score</option>
+                              </select>
+                            </FormControl>
+                            <FormDescription>
+                              What to do when this filter matches
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    
+                    <FormField
+                      control={spamFilterForm.control}
+                      name="pattern"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Pattern</FormLabel>
+                          <FormControl>
+                            <Input placeholder="spam|viagra|casino" {...field} />
+                          </FormControl>
+                          <FormDescription>
+                            Pattern to match (regex supported)
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={spamFilterForm.control}
+                        name="description"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Description</FormLabel>
+                            <FormControl>
+                              <Input placeholder="Optional description" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      {spamFilterForm.watch('action') === 'score' && (
+                        <FormField
+                          control={spamFilterForm.control}
+                          name="score"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Score</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  type="number" 
+                                  min="1" 
+                                  max="10" 
+                                  placeholder="5" 
+                                  {...field}
+                                  onChange={(e) => {
+                                    const value = e.target.value === "" ? "0" : e.target.value;
+                                    field.onChange(parseInt(value, 10));
+                                  }}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                Spam score (1-10)
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                    </div>
+                    
+                    <FormField
+                      control={spamFilterForm.control}
+                      name="isActive"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center space-x-2 space-y-0 rounded-md border p-4">
+                          <FormControl>
+                            <input
+                              type="checkbox"
+                              checked={field.value}
+                              onChange={field.onChange}
+                              className="h-4 w-4"
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel>Enable Filter</FormLabel>
+                            <FormDescription>
+                              Set to active immediately
+                            </FormDescription>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <DialogFooter>
+                      <Button type="submit" disabled={addSpamFilterMutation.isPending}>
+                        {addSpamFilterMutation.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="mr-2 h-4 w-4" />
+                        )}
+                        Add Filter
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
+          
+          {spamFiltersLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : spamFilters?.length === 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>No Spam Filters</CardTitle>
+                <CardDescription>
+                  You haven't created any spam filters yet
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground mb-4">
+                  Spam filters help protect your mail server from unwanted messages.
+                </p>
+                <Button onClick={() => setAddSpamFilterOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Your First Filter
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>Active Spam Filters</CardTitle>
+                <CardDescription>
+                  {spamFilters.filter(filter => filter.isActive).length} of {spamFilters.length} filters currently active
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Rule Type</TableHead>
+                      <TableHead>Pattern</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {spamFilters.map((filter) => (
+                      <TableRow key={filter.id}>
+                        <TableCell className="font-medium">{filter.name}</TableCell>
+                        <TableCell className="capitalize">{filter.ruleType}</TableCell>
+                        <TableCell className="max-w-[200px] truncate">{filter.pattern}</TableCell>
+                        <TableCell className="capitalize">{filter.action}</TableCell>
+                        <TableCell>
+                          {filter.isActive ? (
+                            <Badge className="bg-green-500">Active</Badge>
+                          ) : (
+                            <Badge variant="outline">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => toggleSpamFilterMutation.mutate({ 
+                                      id: filter.id, 
+                                      isActive: !filter.isActive 
+                                    })}
+                                    disabled={toggleSpamFilterMutation.isPending}
+                                  >
+                                    {toggleSpamFilterMutation.isPending ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : filter.isActive ? (
+                                      <Lock className="h-4 w-4" />
+                                    ) : (
+                                      <Lock className="h-4 w-4 text-muted-foreground" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {filter.isActive ? 'Disable' : 'Enable'} filter
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="icon" className="h-8 w-8">
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Spam Filter</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to delete "{filter.name}"? This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction 
+                                    onClick={() => deleteSpamFilterMutation.mutate(filter.id)}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="backups" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Backups</CardTitle>
-              <CardDescription>
-                Manage backups for your Mail-in-a-Box server
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-center py-8 text-muted-foreground">
-                Backup management interface is being built. Check back later.
-              </p>
-            </CardContent>
-          </Card>
+          <div className="mb-6 flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl font-bold">Backup Jobs</h2>
+              <p className="text-muted-foreground">Configure automated backup jobs for your mail server</p>
+            </div>
+            
+            <Dialog open={addBackupJobOpen} onOpenChange={setAddBackupJobOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Backup Job
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[550px]">
+                <DialogHeader>
+                  <DialogTitle>Add New Backup Job</DialogTitle>
+                  <DialogDescription>
+                    Create an automated backup job for your mail server
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <Form {...backupJobForm}>
+                  <form onSubmit={backupJobForm.handleSubmit(onBackupJobSubmit)} className="space-y-4">
+                    <FormField
+                      control={backupJobForm.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Daily Full Backup" {...field} />
+                          </FormControl>
+                          <FormDescription>
+                            A descriptive name for this backup job
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={backupJobForm.control}
+                        name="backupType"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Backup Type</FormLabel>
+                            <FormControl>
+                              <select 
+                                className="w-full border border-input bg-background px-3 py-2 rounded-md"
+                                {...field}
+                              >
+                                <option value="full">Full Backup</option>
+                                <option value="incremental">Incremental</option>
+                                <option value="mailboxes">Mailboxes Only</option>
+                                <option value="config">Configuration Only</option>
+                              </select>
+                            </FormControl>
+                            <FormDescription>
+                              What to include in the backup
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={backupJobForm.control}
+                        name="schedule"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Schedule (Cron)</FormLabel>
+                            <FormControl>
+                              <Input placeholder="0 2 * * *" {...field} />
+                            </FormControl>
+                            <FormDescription>
+                              Cron expression for scheduling
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    
+                    <FormField
+                      control={backupJobForm.control}
+                      name="destination"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Destination</FormLabel>
+                          <FormControl>
+                            <Input placeholder="s3://my-bucket/backups/" {...field} />
+                          </FormControl>
+                          <FormDescription>
+                            Where backups will be stored (local path, S3, etc.)
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={backupJobForm.control}
+                        name="retentionDays"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Retention (Days)</FormLabel>
+                            <FormControl>
+                              <Input 
+                                type="number" 
+                                min="1" 
+                                placeholder="30" 
+                                {...field}
+                                onChange={(e) => {
+                                  const value = e.target.value === "" ? "30" : e.target.value;
+                                  field.onChange(parseInt(value, 10));
+                                }}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              Days to keep backups
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={backupJobForm.control}
+                        name="encryptionKey"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Encryption Key (Optional)</FormLabel>
+                            <FormControl>
+                              <Input type="password" placeholder="Optional encryption key" {...field} />
+                            </FormControl>
+                            <FormDescription>
+                              For encrypted backups
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    
+                    <DialogFooter>
+                      <Button type="submit" disabled={addBackupJobMutation.isPending}>
+                        {addBackupJobMutation.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="mr-2 h-4 w-4" />
+                        )}
+                        Add Backup Job
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
+          
+          {backupJobsLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : backupJobs?.length === 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>No Backup Jobs</CardTitle>
+                <CardDescription>
+                  You haven't created any backup jobs yet
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground mb-4">
+                  Automated backups help protect your mail server data against loss.
+                </p>
+                <Button onClick={() => setAddBackupJobOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create Your First Backup Job
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Scheduled Backup Jobs</CardTitle>
+                  <CardDescription>
+                    {backupJobs.length} backup job{backupJobs.length !== 1 ? 's' : ''} configured
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Schedule</TableHead>
+                        <TableHead>Last Run</TableHead>
+                        <TableHead>Next Run</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {backupJobs.map((job) => (
+                        <TableRow key={job.id}>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              <span>{job.name}</span>
+                              {job.status === 'running' && (
+                                <Badge className="bg-blue-500">Running</Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="capitalize">{job.backupType}</TableCell>
+                          <TableCell>{job.schedule}</TableCell>
+                          <TableCell>
+                            {job.lastRunAt 
+                              ? format(new Date(job.lastRunAt), 'MMM d, yyyy h:mm a') 
+                              : 'Never'}
+                          </TableCell>
+                          <TableCell>
+                            {job.nextRunAt 
+                              ? format(new Date(job.nextRunAt), 'MMM d, yyyy h:mm a') 
+                              : 'Not scheduled'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      onClick={() => {
+                                        setSelectedBackupId(job.id === selectedBackupId ? null : job.id);
+                                      }}
+                                    >
+                                      <HardDrive className="h-4 w-4" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    View backup history
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      onClick={() => runBackupJobMutation.mutate(job.id)}
+                                      disabled={job.status === 'running' || runBackupJobMutation.isPending}
+                                    >
+                                      {job.status === 'running' || runBackupJobMutation.isPending ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <RefreshCw className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    Run backup now
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                              
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" size="icon" className="h-8 w-8">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete Backup Job</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to delete "{job.name}"? This action cannot be undone.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction 
+                                      onClick={() => deleteBackupJobMutation.mutate(job.id)}
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+              
+              {selectedBackupId && (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle>Backup History</CardTitle>
+                      <CardDescription>
+                        Recent backup runs and their status
+                      </CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setSelectedBackupId(null)}>
+                      Hide History
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    {backupHistoryLoading ? (
+                      <div className="flex justify-center py-8">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : backupHistory?.length === 0 ? (
+                      <p className="text-center py-4 text-muted-foreground">
+                        No backup history found for this job
+                      </p>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Started At</TableHead>
+                            <TableHead>Completed At</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Size</TableHead>
+                            <TableHead>Error</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {backupHistory.map((entry) => (
+                            <TableRow key={entry.id}>
+                              <TableCell>
+                                {format(new Date(entry.startedAt), 'MMM d, yyyy h:mm a')}
+                              </TableCell>
+                              <TableCell>
+                                {entry.completedAt 
+                                  ? format(new Date(entry.completedAt), 'MMM d, yyyy h:mm a') 
+                                  : 'In progress'}
+                              </TableCell>
+                              <TableCell>
+                                {entry.status === 'completed' ? (
+                                  <Badge className="bg-green-500">Completed</Badge>
+                                ) : entry.status === 'failed' ? (
+                                  <Badge variant="destructive">Failed</Badge>
+                                ) : entry.status === 'running' ? (
+                                  <Badge className="bg-blue-500">Running</Badge>
+                                ) : (
+                                  <Badge variant="outline">{entry.status}</Badge>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {entry.sizeBytes 
+                                  ? `${(entry.sizeBytes / (1024 * 1024)).toFixed(2)} MB` 
+                                  : '-'}
+                              </TableCell>
+                              <TableCell className="max-w-[300px] truncate text-red-500">
+                                {entry.error || '-'}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="settings" className="mt-6">
