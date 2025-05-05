@@ -14,9 +14,9 @@ import {
 async function seed() {
   try {
     // Check if we already have data
-    const userCount = await db.select({ count: db.fn.count() }).from(users);
+    const userCountResult = await db.select().from(users);
     
-    if (parseInt(userCount[0].count as string) > 0) {
+    if (userCountResult.length > 0) {
       console.log("Database already seeded. Skipping seed process.");
       return;
     }
@@ -192,7 +192,7 @@ async function seed() {
         price: 999, // $9.99
         emailAccountLimit: 5,
         domainLimit: 1,
-        storageLimit: 1024 * 1024 * 1024 * 10, // 10 GB
+        storageLimit: 10737418, // 10 GB in MB (to fit in integer range)
         features: JSON.stringify([
           "5 Email Accounts",
           "1 Domain",
@@ -206,7 +206,7 @@ async function seed() {
         price: 2499, // $24.99
         emailAccountLimit: 50,
         domainLimit: 10,
-        storageLimit: 1024 * 1024 * 1024 * 70, // 70 GB
+        storageLimit: 71663626, // 70 GB in MB
         features: JSON.stringify([
           "Up to 50 Email Accounts",
           "Up to 10 Domains",
@@ -220,7 +220,7 @@ async function seed() {
         price: 4999, // $49.99
         emailAccountLimit: 200,
         domainLimit: 50,
-        storageLimit: 1024 * 1024 * 1024 * 200, // 200 GB
+        storageLimit: 204800, // 200 GB in MB
         features: JSON.stringify([
           "Up to 200 Email Accounts",
           "Up to 50 Domains",
