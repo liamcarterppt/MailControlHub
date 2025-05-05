@@ -390,7 +390,7 @@ export default function MailServerPage() {
   
   // Add a new spam filter
   const addSpamFilterMutation = useMutation({
-    mutationFn: (data: SpamFilterFormData) => {
+    mutationFn: (data: SpamFilterFormData & { serverId?: string | number }) => {
       return apiRequest("POST", `/api/mail-servers/${serverId}/spam-filters`, data).then(res => res.json());
     },
     onSuccess: () => {
@@ -456,7 +456,7 @@ export default function MailServerPage() {
   
   // Add a new backup job
   const addBackupJobMutation = useMutation({
-    mutationFn: (data: BackupJobFormData) => {
+    mutationFn: (data: BackupJobFormData & { serverId?: string | number }) => {
       return apiRequest("POST", `/api/mail-servers/${serverId}/backups`, data).then(res => res.json());
     },
     onSuccess: () => {
@@ -739,7 +739,7 @@ export default function MailServerPage() {
                       <Loader2 className="h-5 w-5 animate-spin" />
                     ) : (
                       <>
-                        <span className="text-green-500 font-bold">{spamFilters.filter(f => f.isActive).length}</span>
+                        <span className="text-green-500 font-bold">{spamFilters.filter((f: { isActive: boolean }) => f.isActive).length}</span>
                         <span className="text-sm font-normal text-muted-foreground"> / {spamFilters.length}</span>
                       </>
                     )}
@@ -750,7 +750,7 @@ export default function MailServerPage() {
                   <div>
                     {spamFiltersLoading ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
-                    ) : spamFilters.some(f => f.isActive) ? (
+                    ) : spamFilters.some((f: { isActive: boolean }) => f.isActive) ? (
                       <Badge className="bg-green-500">Enabled</Badge>
                     ) : (
                       <Badge variant="outline">Disabled</Badge>
@@ -783,13 +783,13 @@ export default function MailServerPage() {
                     {backupJobsLoading ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
                     ) : backupJobs.length > 0 ? (
-                      backupJobs.some(job => job.lastRunAt) ? (
+                      backupJobs.some((job: { lastRunAt?: string | Date }) => job.lastRunAt) ? (
                         format(
                           new Date(
                             Math.max(
                               ...backupJobs
-                                .filter(job => job.lastRunAt)
-                                .map(job => new Date(job.lastRunAt).getTime())
+                                .filter((job: { lastRunAt?: string | Date }) => job.lastRunAt)
+                                .map((job: { lastRunAt: string | Date }) => new Date(job.lastRunAt).getTime())
                             )
                           ),
                           'MMM d, yyyy'
