@@ -34,7 +34,19 @@ if (process.env.STRIPE_SECRET_KEY) {
   });
 }
 
+// Import email service
+import { 
+  initializeEmailService, 
+  updateEmailConfig, 
+  getEmailConfig, 
+  isEmailServiceEnabled,
+  sendEmail, 
+  loadEmailConfiguration
+} from './email-service';
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Load email configuration at startup
+  await loadEmailConfiguration();
   // Set up session middleware
   app.use(
     session({
@@ -1360,6 +1372,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching invoice:", error);
       res.status(500).json({ message: "Error fetching invoice" });
+    }
+  });
+
+  // Email settings routes
+  app.get("/api/email-settings", isAuthenticated, async (req, res) => {
+    try {
+      // Check if user is admin
+      const user = req.user as any;
+      if (user.role !== 'admin') {
+        return res.status(403).json({ message: "Access denied: Admin privileges required" });
+      }
+      
+      // Return current email settings
+      res.json(getEmailConfig());
+    } catch (error) {
+      console.error("Error fetching email settings:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/email-settings", isAuthenticated, async (req, res) => {
+    try {
+      // Check if user is admin
+      const user = req.user as any;
+      if (user.role !== 'admin') {
+        return res.status(403).json({ message: "Access denied: Admin privileges required" });
+      }
+      
+      const { apiKey, fromEmail, fromName, replyToEmail, footerText, enabled } = req.body;
+      
+      // If API key has changed, attempt to initialize the email service
+      if (apiKey && apiKey !== getEmailConfig().fromEmail) {
+        const success = await initializeEmailService(apiKey);
+        if (!success) {
+          return res.status(400).json({ message: "Invalid SendGrid API key or connection failed" });
+        }
+      }
+      
+      // Update other email settings
+      const updatedConfig = await updateEmailConfig({
+        fromEmail,
+        fromName,
+        replyToEmail,
+        footerText,
+        enabled
+      });
+      
+      // Log the activity
+      await storage.insertActivityLog({
+        userId: user.id,
+        action: "email_settings.update",
+        details: { enabled: updatedConfig.enabled },
+        ipAddress: req.ip
+      });
+      
+      res.json(updatedConfig);
+    } catch (error) {
+      console.error("Error updating email settings:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.post("/api/email-settings/test", isAuthenticated, async (req, res) => {
+    try {
+      // Check if user is admin
+      const user = req.user as any;
+      if (user.role !== 'admin') {
+        return res.status(403).json({ message: "Access denied: Admin privileges required" });
+      }
+      
+      if (!isEmailServiceEnabled()) {
+        return res.status(400).json({ message: "Email service is not enabled or configured" });
+      }
+      
+      const { to } = req.body;
+      if (!to) {
+        return res.status(400).json({ message: "Recipient email address is required" });
+      }
+      
+      // Send test email
+      const emailConfig = getEmailConfig();
+      const success = await sendEmail({
+        to,
+        subject: "Mail-in-a-Box Email Test",
+        html: `
+          <h1>Mail-in-a-Box Email Test</h1>
+          <p>This is a test email from your Mail-in-a-Box installation. If you're seeing this, email sending is configured correctly!</p>
+          <p>Email configuration:</p>
+          <ul>
+            <li><strong>From Email:</strong> ${emailConfig.fromEmail}</li>
+            <li><strong>From Name:</strong> ${emailConfig.fromName}</li>
+            <li><strong>Reply-To:</strong> ${emailConfig.replyToEmail}</li>
+          </ul>
+          <p>If you didn't request this test email, please contact your administrator.</p>
+          <hr>
+          <p>${emailConfig.footerText}</p>
+        `
+      });
+      
+      if (!success) {
+        return res.status(500).json({ message: "Failed to send test email" });
+      }
+      
+      // Log the activity
+      await storage.insertActivityLog({
+        userId: user.id,
+        action: "email_settings.test",
+        details: { recipient: to },
+        ipAddress: req.ip
+      });
+      
+      res.json({ message: "Test email sent successfully" });
+    } catch (error) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ message: "Internal server error" });
     }
   });
 
