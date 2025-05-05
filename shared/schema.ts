@@ -10,18 +10,67 @@ export const users = pgTable('users', {
   password: text('password').notNull(),
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
-  role: text('role').notNull().default('user'),
+  role: text('role').notNull().default('user'), // user, admin, reseller
   createdAt: timestamp('created_at').defaultNow().notNull(),
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
   referralCode: text('referral_code').unique(),
   referredBy: text('referred_by'),
+  isReseller: boolean('is_reseller').default(false).notNull(),
+  resellerId: integer('reseller_id').references(() => users.id), // Self-reference for reseller
+  resellerCustomId: text('reseller_custom_id'), // Custom ID assigned by resellers
 });
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ many, one }) => ({
   domains: many(domains),
   emailAccounts: many(emailAccounts),
   referrals: many(referrals, { relationName: 'referrer' }),
+  customers: many(users, { relationName: 'reseller_customers' }),
+  reseller: one(users, { 
+    fields: [users.resellerId], 
+    references: [users.id],
+    relationName: 'reseller_customers'
+  }),
+  resellerSettings: one(resellerSettings),
+}));
+
+// Reseller Settings table
+export const resellerSettings = pgTable('reseller_settings', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull().unique(),
+  companyName: text('company_name').notNull(),
+  companyLogo: text('company_logo'),
+  primaryColor: text('primary_color').default('#4f46e5'),
+  accentColor: text('accent_color').default('#10b981'),
+  customDomain: text('custom_domain'),
+  whiteLabel: boolean('white_label').default(false).notNull(),
+  supportEmail: text('support_email'),
+  commissionRate: integer('commission_rate').default(10).notNull(), // Percentage
+  maxCustomers: integer('max_customers').default(100).notNull(),
+  maxDomainsPerCustomer: integer('max_domains_per_customer').default(5).notNull(),
+  maxEmailsPerDomain: integer('max_emails_per_domain').default(10).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const resellerSettingsRelations = relations(resellerSettings, ({ one }) => ({
+  user: one(users, { fields: [resellerSettings.userId], references: [users.id] }),
+}));
+
+// Reseller Commission Tiers table
+export const resellerCommissionTiers = pgTable('reseller_commission_tiers', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id).notNull(),
+  tierName: text('tier_name').notNull(),
+  minimumRevenue: integer('minimum_revenue').notNull(), // Minimum monthly revenue for this tier
+  commissionRate: integer('commission_rate').notNull(), // Percentage
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const resellerCommissionTiersRelations = relations(resellerCommissionTiers, ({ one }) => ({
+  user: one(users, { fields: [resellerCommissionTiers.userId], references: [users.id] }),
 }));
 
 // Domains table
@@ -159,6 +208,21 @@ export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans
   storageLimit: (schema) => schema.min(1, "Storage limit must be positive"),
 }).omit({ id: true, createdAt: true, updatedAt: true, isActive: true });
 
+export const insertResellerSettingsSchema = createInsertSchema(resellerSettings, {
+  companyName: (schema) => schema.min(2, "Company name must be at least 2 characters"),
+  supportEmail: (schema) => schema.optional().transform(email => email || null),
+  commissionRate: (schema) => schema.min(0, "Commission rate must be a positive number").max(100, "Commission rate cannot exceed 100%"),
+  maxCustomers: (schema) => schema.min(1, "Maximum customers must be at least 1"),
+  maxDomainsPerCustomer: (schema) => schema.min(1, "Maximum domains per customer must be at least 1"),
+  maxEmailsPerDomain: (schema) => schema.min(1, "Maximum emails per domain must be at least 1")
+}).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const insertResellerCommissionTierSchema = createInsertSchema(resellerCommissionTiers, {
+  tierName: (schema) => schema.min(1, "Tier name is required"),
+  minimumRevenue: (schema) => schema.min(0, "Minimum revenue must be a positive number"),
+  commissionRate: (schema) => schema.min(0, "Commission rate must be a positive number").max(100, "Commission rate cannot exceed 100%"),
+}).omit({ id: true, createdAt: true, updatedAt: true, isActive: true });
+
 // Export types
 export type User = typeof users.$inferSelect;
 export type UserInsert = z.infer<typeof insertUserSchema>;
@@ -182,3 +246,9 @@ export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type SubscriptionPlanInsert = z.infer<typeof insertSubscriptionPlanSchema>;
 
 export type Referral = typeof referrals.$inferSelect;
+
+export type ResellerSetting = typeof resellerSettings.$inferSelect;
+export type ResellerSettingInsert = z.infer<typeof insertResellerSettingsSchema>;
+
+export type ResellerCommissionTier = typeof resellerCommissionTiers.$inferSelect;
+export type ResellerCommissionTierInsert = z.infer<typeof insertResellerCommissionTierSchema>;

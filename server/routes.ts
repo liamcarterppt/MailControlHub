@@ -564,6 +564,426 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reseller management routes
+  app.post("/api/reseller/register", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      if (user.isReseller) {
+        return res.status(400).json({ message: "User is already a reseller" });
+      }
+      
+      // Validate request body for reseller settings
+      const { companyName, supportEmail, customDomain, primaryColor, accentColor } = req.body;
+      
+      if (!companyName) {
+        return res.status(400).json({ message: "Company name is required" });
+      }
+      
+      // Update user to be a reseller
+      await db.update(users)
+        .set({ isReseller: true })
+        .where(eq(users.id, userId));
+      
+      // Create reseller settings
+      await db.insert(resellerSettings).values({
+        userId,
+        companyName,
+        supportEmail: supportEmail || null,
+        customDomain: customDomain || null,
+        primaryColor: primaryColor || '#4f46e5',
+        accentColor: accentColor || '#10b981'
+      });
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "reseller.register",
+        details: { companyName },
+        ipAddress: req.ip
+      });
+      
+      res.status(201).json({ message: "Registered as reseller successfully" });
+    } catch (error) {
+      console.error("Error registering as reseller:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/reseller/settings", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.isReseller) {
+        return res.status(403).json({ message: "Not authorized as a reseller" });
+      }
+      
+      const settings = await db.query.resellerSettings.findFirst({
+        where: eq(resellerSettings.userId, userId)
+      });
+      
+      if (!settings) {
+        return res.status(404).json({ message: "Reseller settings not found" });
+      }
+      
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching reseller settings:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.patch("/api/reseller/settings", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.isReseller) {
+        return res.status(403).json({ message: "Not authorized as a reseller" });
+      }
+      
+      const settings = await db.query.resellerSettings.findFirst({
+        where: eq(resellerSettings.userId, userId)
+      });
+      
+      if (!settings) {
+        return res.status(404).json({ message: "Reseller settings not found" });
+      }
+      
+      const { 
+        companyName, 
+        supportEmail, 
+        customDomain, 
+        primaryColor,
+        accentColor,
+        whiteLabel,
+        commissionRate,
+        maxCustomers,
+        maxDomainsPerCustomer,
+        maxEmailsPerDomain 
+      } = req.body;
+      
+      // Update reseller settings
+      const updatedSettings = await db.update(resellerSettings)
+        .set({
+          companyName: companyName || settings.companyName,
+          supportEmail: supportEmail !== undefined ? supportEmail : settings.supportEmail,
+          customDomain: customDomain !== undefined ? customDomain : settings.customDomain,
+          primaryColor: primaryColor || settings.primaryColor,
+          accentColor: accentColor || settings.accentColor,
+          whiteLabel: whiteLabel !== undefined ? whiteLabel : settings.whiteLabel,
+          commissionRate: commissionRate !== undefined ? commissionRate : settings.commissionRate,
+          maxCustomers: maxCustomers !== undefined ? maxCustomers : settings.maxCustomers,
+          maxDomainsPerCustomer: maxDomainsPerCustomer !== undefined ? maxDomainsPerCustomer : settings.maxDomainsPerCustomer,
+          maxEmailsPerDomain: maxEmailsPerDomain !== undefined ? maxEmailsPerDomain : settings.maxEmailsPerDomain,
+          updatedAt: new Date()
+        })
+        .where(eq(resellerSettings.userId, userId))
+        .returning();
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "reseller.settings.update",
+        details: { id: settings.id },
+        ipAddress: req.ip
+      });
+      
+      res.json(updatedSettings[0]);
+    } catch (error) {
+      console.error("Error updating reseller settings:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Reseller customer management
+  app.post("/api/reseller/customers", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.isReseller) {
+        return res.status(403).json({ message: "Not authorized as a reseller" });
+      }
+      
+      const settings = await db.query.resellerSettings.findFirst({
+        where: eq(resellerSettings.userId, userId)
+      });
+      
+      if (!settings) {
+        return res.status(404).json({ message: "Reseller settings not found" });
+      }
+      
+      // Check if reseller has reached customer limit
+      const customerCount = await db.select({ count: sql`count(*)` })
+        .from(users)
+        .where(eq(users.resellerId, userId));
+      
+      if (customerCount[0].count >= settings.maxCustomers) {
+        return res.status(400).json({ message: `You've reached your maximum customer limit of ${settings.maxCustomers}` });
+      }
+      
+      // Validate request body
+      const { name, email, username, password, customId } = req.body;
+      
+      if (!name || !email || !username || !password) {
+        return res.status(400).json({ message: "Name, email, username, and password are required" });
+      }
+      
+      // Check if username or email already exists
+      const existingUser = await db.query.users.findFirst({
+        where: or(
+          eq(users.username, username),
+          eq(users.email, email)
+        )
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({ message: "Username or email already exists" });
+      }
+      
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+      
+      // Create customer account under reseller
+      const newUser = await db.insert(users)
+        .values({
+          name,
+          email,
+          username,
+          password: hashedPassword,
+          resellerId: userId,
+          resellerCustomId: customId || null,
+          role: 'user'
+        })
+        .returning();
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "reseller.customer.create",
+        details: { customerId: newUser[0].id, customerEmail: email },
+        ipAddress: req.ip
+      });
+      
+      // Don't send password back to client
+      const { password: _, ...userWithoutPassword } = newUser[0];
+      res.status(201).json(userWithoutPassword);
+    } catch (error) {
+      console.error("Error creating reseller customer:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/reseller/customers", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.isReseller) {
+        return res.status(403).json({ message: "Not authorized as a reseller" });
+      }
+      
+      // Get customers of the reseller
+      const customers = await db.select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        username: users.username,
+        resellerCustomId: users.resellerCustomId,
+        createdAt: users.createdAt,
+        stripeCustomerId: users.stripeCustomerId,
+        stripeSubscriptionId: users.stripeSubscriptionId
+      })
+      .from(users)
+      .where(eq(users.resellerId, userId));
+      
+      res.json(customers);
+    } catch (error) {
+      console.error("Error fetching reseller customers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/reseller/customers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const customerId = parseInt(req.params.id);
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.isReseller) {
+        return res.status(403).json({ message: "Not authorized as a reseller" });
+      }
+      
+      // Get the customer
+      const customer = await db.query.users.findFirst({
+        where: and(
+          eq(users.id, customerId),
+          eq(users.resellerId, userId)
+        ),
+        with: {
+          domains: true
+        }
+      });
+      
+      if (!customer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+      
+      // Don't send password back to client
+      const { password, ...customerWithoutPassword } = customer;
+      
+      // Get email accounts count
+      const emailAccountsCount = await db.select({ count: sql`count(*)` })
+        .from(emailAccounts)
+        .where(eq(emailAccounts.userId, customerId));
+      
+      // Get storage usage
+      const storageUsage = await db.select({ total: sql`sum(storage_used)` })
+        .from(emailAccounts)
+        .where(eq(emailAccounts.userId, customerId));
+      
+      const customerData = {
+        ...customerWithoutPassword,
+        emailAccountsCount: emailAccountsCount[0].count || 0,
+        storageUsage: storageUsage[0].total || 0
+      };
+      
+      res.json(customerData);
+    } catch (error) {
+      console.error("Error fetching reseller customer:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.patch("/api/reseller/customers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const customerId = parseInt(req.params.id);
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.isReseller) {
+        return res.status(403).json({ message: "Not authorized as a reseller" });
+      }
+      
+      // Get the customer
+      const customer = await db.query.users.findFirst({
+        where: and(
+          eq(users.id, customerId),
+          eq(users.resellerId, userId)
+        )
+      });
+      
+      if (!customer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+      
+      const { name, email, password, resellerCustomId } = req.body;
+      const updateData: any = {};
+      
+      if (name) updateData.name = name;
+      if (email) updateData.email = email;
+      if (resellerCustomId !== undefined) updateData.resellerCustomId = resellerCustomId;
+      
+      // Hash password if provided
+      if (password) {
+        const salt = await bcrypt.genSalt(10);
+        updateData.password = await bcrypt.hash(password, salt);
+      }
+      
+      // Update the customer
+      const updatedCustomer = await db.update(users)
+        .set(updateData)
+        .where(and(
+          eq(users.id, customerId),
+          eq(users.resellerId, userId)
+        ))
+        .returning();
+      
+      // Log activity
+      await storage.insertActivityLog({
+        userId,
+        action: "reseller.customer.update",
+        details: { customerId },
+        ipAddress: req.ip
+      });
+      
+      // Don't send password back to client
+      const { password: _, ...customerWithoutPassword } = updatedCustomer[0];
+      res.json(customerWithoutPassword);
+    } catch (error) {
+      console.error("Error updating reseller customer:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  // Commission Tiers
+  app.post("/api/reseller/commission-tiers", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.isReseller) {
+        return res.status(403).json({ message: "Not authorized as a reseller" });
+      }
+      
+      const { tierName, minimumRevenue, commissionRate } = req.body;
+      
+      if (!tierName || minimumRevenue === undefined || commissionRate === undefined) {
+        return res.status(400).json({ message: "Tier name, minimum revenue, and commission rate are required" });
+      }
+      
+      if (commissionRate < 0 || commissionRate > 100) {
+        return res.status(400).json({ message: "Commission rate must be between 0 and 100" });
+      }
+      
+      // Create commission tier
+      const tier = await db.insert(resellerCommissionTiers)
+        .values({
+          userId,
+          tierName,
+          minimumRevenue,
+          commissionRate,
+          isActive: true
+        })
+        .returning();
+      
+      res.status(201).json(tier[0]);
+    } catch (error) {
+      console.error("Error creating commission tier:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
+  app.get("/api/reseller/commission-tiers", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const user = await storage.getUserById(userId);
+      
+      if (!user || !user.isReseller) {
+        return res.status(403).json({ message: "Not authorized as a reseller" });
+      }
+      
+      // Get commission tiers
+      const tiers = await db.select()
+        .from(resellerCommissionTiers)
+        .where(eq(resellerCommissionTiers.userId, userId))
+        .orderBy(asc(resellerCommissionTiers.minimumRevenue));
+      
+      res.json(tiers);
+    } catch (error) {
+      console.error("Error fetching commission tiers:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  
   // Subscription plans routes
   app.get("/api/subscription-plans", isAuthenticated, async (req, res) => {
     try {
