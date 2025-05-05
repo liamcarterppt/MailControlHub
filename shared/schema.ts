@@ -19,6 +19,11 @@ export const users = pgTable('users', {
   isReseller: boolean('is_reseller').default(false).notNull(),
   resellerId: integer('reseller_id'), // Self-reference for reseller - adding reference later in relations
   resellerCustomId: text('reseller_custom_id'), // Custom ID assigned by resellers
+  twoFactorEnabled: boolean('two_factor_enabled').default(false).notNull(),
+  twoFactorSecret: text('two_factor_secret'),
+  backupCodes: jsonb('backup_codes'),
+  lastLoginAt: timestamp('last_login_at'),
+  lastLoginIp: text('last_login_ip'),
 });
 
 // Reseller Settings table
