@@ -18,7 +18,8 @@ import {
   domains,
   emailAccounts,
   resellerSettings,
-  resellerCommissionTiers
+  resellerCommissionTiers,
+  invoices
 } from "@shared/schema";
 import { eq, and, or, asc, desc, sql } from "drizzle-orm";
 
@@ -1210,7 +1211,157 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(500).json({ message: "Error canceling subscription" });
       }
     });
+    
+    // Stripe webhook handler for automated payment processing
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    app.post('/webhook', async (req, res) => {
+      let event;
+      
+      try {
+        if (endpointSecret) {
+          // Get the signature sent by Stripe
+          const signature = req.headers['stripe-signature'] as string;
+          event = stripe.webhooks.constructEvent(
+            req.body,
+            signature,
+            endpointSecret
+          );
+        } else {
+          // For development without signature verification
+          event = req.body;
+        }
+        
+        // Handle specific events
+        if (event && event.type) {
+          switch (event.type) {
+            case 'invoice.paid': {
+              const invoice = event.data.object;
+              const customerId = invoice.customer;
+              
+              // Find user by Stripe customer ID
+              const user = await db.query.users.findFirst({
+                where: eq(users.stripeCustomerId, customerId)
+              });
+            
+              if (user) {
+                // Create invoice record in our database
+                await storage.insertInvoice({
+                  userId: user.id,
+                  stripeInvoiceId: invoice.id,
+                  amount: invoice.amount_paid,
+                  status: 'paid',
+                  description: invoice.description || `Invoice ${invoice.number}`,
+                  periodStart: new Date(invoice.period_start * 1000),
+                  periodEnd: new Date(invoice.period_end * 1000),
+                  paidAt: new Date(),
+                  planName: invoice.lines?.data[0]?.description || 'Subscription',
+                  invoiceUrl: invoice.hosted_invoice_url,
+                  receiptUrl: invoice.receipt_url
+                });
+                
+                // Log activity
+                await storage.insertActivityLog({
+                  userId: user.id,
+                  action: "invoice.paid",
+                  details: { 
+                    invoiceId: invoice.id,
+                    amount: invoice.amount_paid / 100 // Convert from cents to dollars
+                  },
+                  ipAddress: req.ip
+                });
+              }
+              break;
+            }
+              
+            case 'invoice.payment_failed': {
+              // Handle failed payment
+              const failedInvoice = event.data.object;
+              const failedCustomerId = failedInvoice.customer;
+              
+              const failedUser = await db.query.users.findFirst({
+                where: eq(users.stripeCustomerId, failedCustomerId)
+              });
+              
+              if (failedUser) {
+                // Create or update invoice record
+                const existingInvoice = await storage.getInvoiceByStripeId(failedInvoice.id);
+                
+                if (existingInvoice) {
+                  await storage.updateInvoiceStatus(existingInvoice.id, 'failed');
+                } else {
+                  await storage.insertInvoice({
+                    userId: failedUser.id,
+                    stripeInvoiceId: failedInvoice.id,
+                    amount: failedInvoice.amount_due,
+                    status: 'failed',
+                    description: failedInvoice.description || `Invoice ${failedInvoice.number}`,
+                    periodStart: new Date(failedInvoice.period_start * 1000),
+                    periodEnd: new Date(failedInvoice.period_end * 1000),
+                    paidAt: null,
+                    planName: failedInvoice.lines?.data[0]?.description || 'Subscription',
+                    invoiceUrl: failedInvoice.hosted_invoice_url,
+                    receiptUrl: null
+                  });
+                }
+                
+                // Log activity
+                await storage.insertActivityLog({
+                  userId: failedUser.id,
+                  action: "invoice.payment_failed",
+                  details: { 
+                    invoiceId: failedInvoice.id,
+                    amount: failedInvoice.amount_due / 100 // Convert from cents to dollars
+                  },
+                  ipAddress: req.ip
+                });
+              }
+              break;
+            }
+          }
+        }
+        
+        res.json({received: true});
+      } catch (err) {
+        console.error('Webhook error:', err);
+        res.status(400).send(`Webhook Error: ${err.message}`);
+      }
+    });
   }
+  
+  // Invoice routes
+  app.get('/api/invoices', isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const invoiceList = await storage.getInvoicesByUserId(userId);
+      res.json(invoiceList);
+    } catch (error) {
+      console.error("Error fetching invoices:", error);
+      res.status(500).json({ message: "Error fetching invoices" });
+    }
+  });
+  
+  app.get('/api/invoices/:id', isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).id;
+      const invoiceId = parseInt(req.params.id);
+      
+      const invoice = await storage.getInvoiceById(invoiceId);
+      
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      
+      // Check if invoice belongs to the user
+      if (invoice.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized to view this invoice" });
+      }
+      
+      res.json(invoice);
+    } catch (error) {
+      console.error("Error fetching invoice:", error);
+      res.status(500).json({ message: "Error fetching invoice" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

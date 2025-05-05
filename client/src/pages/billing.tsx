@@ -13,7 +13,12 @@ import {
   CreditCard, 
   CheckCircle, 
   AlertCircle,
-  Receipt
+  Receipt,
+  Download,
+  Clock,
+  FileText,
+  AlertTriangle,
+  XCircle
 } from "lucide-react";
 import { 
   AlertDialog,
@@ -26,6 +31,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 export default function Billing() {
@@ -57,6 +71,11 @@ export default function Billing() {
   // Fetch user's dashboard data to get current subscription
   const { data: dashboardData, isLoading: dashboardLoading } = useQuery({
     queryKey: ["/api/dashboard"],
+  });
+  
+  // Fetch user's invoice history
+  const { data: invoices, isLoading: invoicesLoading } = useQuery({
+    queryKey: ["/api/invoices"],
   });
 
   // Cancel subscription mutation
@@ -95,9 +114,23 @@ export default function Billing() {
     setSelectedPlan(null);
   };
 
-  const isLoading = plansLoading || dashboardLoading;
+  const isLoading = plansLoading || dashboardLoading || invoicesLoading;
   const subscription = dashboardData?.subscriptionPlan;
   const currentPlanId = subscription ? plans?.find((p: any) => p.name === subscription.name)?.id : undefined;
+
+  // Helper to get status icon
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'paid':
+        return <CheckCircle className="h-4 w-4 text-success" />;
+      case 'pending':
+        return <Clock className="h-4 w-4 text-warning" />;
+      case 'failed':
+        return <XCircle className="h-4 w-4 text-destructive" />;
+      default:
+        return <AlertTriangle className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
 
   return (
     <MainLayout pageTitle="Billing & Subscription">
@@ -202,24 +235,113 @@ export default function Billing() {
               </Card>
             )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <CreditCard className="mr-2 h-5 w-5 text-primary" />
-                  Available Plans
-                </CardTitle>
-                <CardDescription>
-                  Choose a subscription plan that fits your needs
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <PlanSelector
-                  plans={plans || []}
-                  currentPlanId={currentPlanId}
-                  onSelectPlan={handleSelectPlan}
-                />
-              </CardContent>
-            </Card>
+            <Tabs defaultValue="plans" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="plans" className="flex items-center">
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  <span>Subscription Plans</span>
+                </TabsTrigger>
+                <TabsTrigger value="history" className="flex items-center">
+                  <FileText className="h-4 w-4 mr-2" />
+                  <span>Billing History</span>
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="plans" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <CreditCard className="mr-2 h-5 w-5 text-primary" />
+                      Available Plans
+                    </CardTitle>
+                    <CardDescription>
+                      Choose a subscription plan that fits your needs
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <PlanSelector
+                      plans={plans || []}
+                      currentPlanId={currentPlanId}
+                      onSelectPlan={handleSelectPlan}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="history" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <Receipt className="mr-2 h-5 w-5 text-primary" />
+                      Invoice History
+                    </CardTitle>
+                    <CardDescription>
+                      Your billing history and payment receipts
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {invoices && invoices.length > 0 ? (
+                      <div className="rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Amount</TableHead>
+                              <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {invoices.map((invoice: any) => (
+                              <TableRow key={invoice.id}>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    {getStatusIcon(invoice.status)}
+                                    <span className="capitalize">{invoice.status}</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell>{invoice.description || invoice.planName}</TableCell>
+                                <TableCell>{formatDate(invoice.paidAt || invoice.createdAt)}</TableCell>
+                                <TableCell>{formatCurrency(invoice.amount / 100)}</TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-2">
+                                    {invoice.invoiceUrl && (
+                                      <Button variant="outline" size="sm" asChild>
+                                        <a href={invoice.invoiceUrl} target="_blank" rel="noopener noreferrer">
+                                          <FileText className="h-4 w-4 mr-1" />
+                                          Invoice
+                                        </a>
+                                      </Button>
+                                    )}
+                                    {invoice.receiptUrl && (
+                                      <Button variant="outline" size="sm" asChild>
+                                        <a href={invoice.receiptUrl} target="_blank" rel="noopener noreferrer">
+                                          <Download className="h-4 w-4 mr-1" />
+                                          Receipt
+                                        </a>
+                                      </Button>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 px-4">
+                        <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                        <h3 className="text-lg font-medium mb-2">No invoices yet</h3>
+                        <p className="text-muted-foreground">
+                          Your billing history will appear here once you have active subscriptions or payments.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </div>
