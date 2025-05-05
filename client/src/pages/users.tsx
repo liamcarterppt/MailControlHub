@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, UserPlus, Trash2, Mail, User, CheckCircle, XCircle } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatBytes } from "@/lib/utils";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
