@@ -17,22 +17,9 @@ export const users = pgTable('users', {
   referralCode: text('referral_code').unique(),
   referredBy: text('referred_by'),
   isReseller: boolean('is_reseller').default(false).notNull(),
-  resellerId: integer('reseller_id').references(() => users.id), // Self-reference for reseller
+  resellerId: integer('reseller_id'), // Self-reference for reseller - adding reference later in relations
   resellerCustomId: text('reseller_custom_id'), // Custom ID assigned by resellers
 });
-
-export const usersRelations = relations(users, ({ many, one }) => ({
-  domains: many(domains),
-  emailAccounts: many(emailAccounts),
-  referrals: many(referrals, { relationName: 'referrer' }),
-  customers: many(users, { relationName: 'reseller_customers' }),
-  reseller: one(users, { 
-    fields: [users.resellerId], 
-    references: [users.id],
-    relationName: 'reseller_customers'
-  }),
-  resellerSettings: one(resellerSettings),
-}));
 
 // Reseller Settings table
 export const resellerSettings = pgTable('reseller_settings', {
@@ -71,6 +58,20 @@ export const resellerCommissionTiers = pgTable('reseller_commission_tiers', {
 
 export const resellerCommissionTiersRelations = relations(resellerCommissionTiers, ({ one }) => ({
   user: one(users, { fields: [resellerCommissionTiers.userId], references: [users.id] }),
+}));
+
+// User relations - defined after all tables
+export const usersRelations = relations(users, ({ many, one }) => ({
+  domains: many(domains),
+  emailAccounts: many(emailAccounts),
+  referrals: many(referrals, { relationName: 'referrer' }),
+  customers: many(users, { relationName: 'reseller_customers' }),
+  reseller: one(users, { 
+    fields: [users.resellerId], 
+    references: [users.id],
+    relationName: 'reseller_customers'
+  }),
+  resellerSettings: one(resellerSettings),
 }));
 
 // Domains table
